@@ -287,6 +287,8 @@ window.onNative = function (event, d) {
   if (event === 'busy') {
     $('#busy').classList.toggle('hidden', !d.on);
     if (d.text) $('#busy-text').textContent = d.text;
+  } else if (event === 'shared') {
+    if (currentView !== 'home') { show('home'); renderNotesList(); }
   } else if (event === 'pages') {
     renderPages();
     if (d.message) toast(d.message);

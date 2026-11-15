@@ -17,6 +17,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
+import androidx.core.content.IntentCompat
 import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
 import java.io.File
@@ -106,6 +107,7 @@ class MainActivity : ComponentActivity() {
         web.addJavascriptInterface(Bridge(), "Android")
         setContentView(web)
         web.loadUrl("https://$APP_HOST/assets/index.html")
+        if (savedInstanceState == null) handleShared(intent)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -114,6 +116,44 @@ class MainActivity : ComponentActivity() {
                 }
             }
         })
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleShared(intent)
+    }
+
+    /** Pictures or PDFs sent here from another app's Share / Open-with menu. */
+    private fun handleShared(intent: Intent?) {
+        if (intent == null) return
+        val uris = ArrayList<Uri>()
+        when (intent.action) {
+            Intent.ACTION_SEND ->
+                IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let { uris.add(it) }
+            Intent.ACTION_SEND_MULTIPLE ->
+                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let { uris.addAll(it) }
+            Intent.ACTION_VIEW -> intent.data?.let { uris.add(it) }
+            else -> return
+        }
+        if (uris.isEmpty()) return
+        val hint = intent.type ?: ""
+        emit("shared", JSONObject())
+        importing("Adding shared pages…") {
+            var note: String? = null
+            for (uri in uris) {
+                val type = contentResolver.getType(uri) ?: hint
+                val isPdf = type == "application/pdf" || uri.toString().lowercase().endsWith(".pdf")
+                if (isPdf) {
+                    val total = pages.addPdf(uri)
+                    if (total > Pages.MAX_PDF_PAGES) {
+                        note = "This PDF has $total pages. Only the first ${Pages.MAX_PDF_PAGES} were added; split the PDF to do the rest."
+                    }
+                } else {
+                    pages.addImageUri(uri)
+                }
+            }
+            note
+        }
     }
 
     override fun onDestroy() {
