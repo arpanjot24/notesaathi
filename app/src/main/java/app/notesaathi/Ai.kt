@@ -96,6 +96,25 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         return u
     }
 
+    /**
+     * Exact-transcription mode: the user's own instructions, word for word. The reply is still
+     * asked for inside a JSON wrapper so every AI service returns it the same way.
+     */
+    private fun exactPrompt(settings: JSONObject): String {
+        val custom = settings.optString("customPrompt", "").trim()
+        if (custom.isEmpty()) throw AiException("Open Settings, check the transcription instructions and tap Save.")
+        return custom + "\n\nReturn your whole answer as one JSON object with a single field, like this: " +
+            "{\"text\": \"the complete plain-text output described above, with \\n for each line break\"}. " +
+            "Put nothing outside the JSON object."
+    }
+
+    private fun shaped(json: JSONObject, settings: JSONObject): JSONObject {
+        if (settings.optString("outputMode") != "exact") return json
+        val text = json.optString("text", "")
+        if (text.isBlank()) throw AiException("The AI sent back an empty transcription. Try this page again.")
+        return JSONObject().put("exact", true).put("text", text)
+    }
+
     /** Cost saver: a smaller picture means fewer input tokens. */
     private fun shrink(image: File): ByteArray {
         val bmp = android.graphics.BitmapFactory.decodeFile(image.absolutePath) ?: return image.readBytes()
@@ -119,10 +138,12 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         val bytes = if (settings.optString("smallPictures") == "on") shrink(image) else image.readBytes()
         val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
         val summaries = settings.optString("summaries") != "off"
-        val system = PAGE_PROMPT
+        val notesPrompt = PAGE_PROMPT
             .replace("SUMMARY_STEP", if (summaries) "5. Write a summary of 2 to 3 short lines covering the whole page." else "")
             .replace("SUMMARY_FIELD", if (summaries) ",\n  \"summary\": [\"...\", \"...\"]" else "")
-        val user = "Here is the page.${subjectNote(settings)} Make the notes."
+        val exact = settings.optString("outputMode") == "exact"
+        val system = if (exact) exactPrompt(settings) else notesPrompt
+        val user = if (exact) "Here is the page. Transcribe it." else "Here is the page.${subjectNote(settings)} Make the notes."
         val deepseek = settings.optString("provider") == "deepseek"
         if (deepseek && deepseekNoPictures) return notesFromPhoneReading(settings, system, image)
         val reply = try {
@@ -133,7 +154,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
             deepseekNoPictures = true
             return notesFromPhoneReading(settings, system, image)
         }
-        return parseJson(reply.text).put("_usage", usage(reply.tokensIn, reply.tokensOut, reply.usd))
+        return shaped(parseJson(reply.text), settings).put("_usage", usage(reply.tokensIn, reply.tokensOut, reply.usd))
     }
 
     private fun notesFromPhoneReading(settings: JSONObject, system: String, image: File): JSONObject {
@@ -147,7 +168,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         val user = "The page was read by OCR on a phone, so the text may contain mistakes; fix obvious OCR errors from context." +
             "${subjectNote(settings)} Make the notes from this text:\n\n$text"
         val reply = ask(settings, system, user, null)
-        return parseJson(reply.text).put("_usage", usage(reply.tokensIn, reply.tokensOut, reply.usd)).put("ocr", true)
+        return shaped(parseJson(reply.text), settings).put("_usage", usage(reply.tokensIn, reply.tokensOut, reply.usd)).put("ocr", true)
     }
 
     /**

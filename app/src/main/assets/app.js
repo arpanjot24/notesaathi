@@ -20,6 +20,37 @@ function ink(s) {
   return h.replace(/\[\[[kdnu]:|\]\]/g, '');
 }
 
+/* Exact-transcription pages: plain lines, **underlined** as bold, ~~struck out~~ as strike-through. */
+function exactLine(line) {
+  var h = esc(line);
+  h = h.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/~~(.+?)~~/g, '<s>$1</s>');
+  return '<div class="exact-line">' + h + '</div>';
+}
+
+function exactHtml(text) {
+  var all = String(text || '').replace(/\r/g, '');
+  var cut = all.search(/^\s*\**\s*DOUBTFUL POINTS\s*:?\s*\**\s*$/mi);
+  var body = cut >= 0 ? all.slice(0, cut) : all;
+  var doubts = cut >= 0 ? all.slice(cut).split('\n') : [];
+  var html = body.replace(/\s+$/, '').split('\n').map(exactLine).join('');
+  doubts = doubts.map(function (l) { return l.replace(/^\s*[-•*]\s*/, '').trim(); })
+    .filter(function (l) { return l && !/^\**\s*DOUBTFUL POINTS\s*:?\s*\**$/i.test(l); });
+  if (doubts.length) {
+    html += '<div class="box box-doubt"><h4>⚠ Doubtful points</h4><ul>' +
+      doubts.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul></div>';
+  }
+  return html;
+}
+
+function pageTitle(d) {
+  if (!d) return '';
+  if (d.exact) {
+    var first = String(d.text || '').split('\n').filter(function (l) { return l.trim(); })[0] || '';
+    return first.replace(/\*\*|~~/g, '').trim().slice(0, 40);
+  }
+  return d.title || '';
+}
+
 function list(v) {
   if (Array.isArray(v)) return v.filter(function (x) { return x != null && String(x).trim() !== ''; });
   if (v == null || v === '') return [];
@@ -27,6 +58,30 @@ function list(v) {
 }
 
 var AI_PROVIDERS = ['gemini', 'claude', 'deepseek', 'openrouter'];
+
+var DEFAULT_EXACT_PROMPT = `You transcribe handwritten Indian law notes (LLB/LLM level) exactly as written, then flag doubtful facts.
+
+TRANSCRIPTION RULES
+1. Copy the writer's words verbatim. Do NOT paraphrase, summarise, reorder, or add explanations, definitions or headings that are not on the page.
+2. Keep every negative exactly: can't, not, no, never. Double-check these.
+3. Keep the writer's abbreviations as-is: R8 = right, ICA, TPA, SOGA, b/w, eg, i.e., S. = Section.
+4. Hindi/Punjabi words: write them in the original script, then a short English meaning in [ ].
+5. Numbers and years: copy digit by digit. If a digit is unclear, write your best reading followed by (?). Never correct a year or fact inside the transcription.
+6. Case names and Acts: use this list to resolve unclear spellings. If a word clearly matches one, use it:
+   Luke v Lyde, Slade v Morley, Humber Ferryman's Case, Pacta Sunt Servanda, Assumpsit, Quid Pro Quo, Magna Carta, Indian Contract Act 1872, Transfer of Property Act (TPA), Sale of Goods Act (SOGA), Specific Relief Act, NDPS Act, Vyavaharmayukha, Smritis, Shrutis.
+7. Unreadable word: write [?]. Struck-out word: ~~word~~.
+8. Arrows (→ ↓) and numbering (1, 2, 3): keep them as written.
+
+OUTPUT FORMAT
+- Plain text, one line per handwritten line or bullet.
+- Use **bold** only where the writer underlined or highlighted.
+- No intro, no closing remarks, no page titles, no summary.
+
+After the transcription, write:
+DOUBTFUL POINTS
+- List only facts, dates, case names or section numbers in the notes that may be legally or historically wrong. Give the likely correct version. Max 1 line each, max 5 items.
+- If nothing is doubtful, write "None".
+- Do not change the transcription itself.`;
 
 /* ───────── model catalogue ─────────
    pin / pout: US$ per million tokens (public price lists, November 2026).
@@ -494,13 +549,13 @@ function finishJob() {
   var first = pages.filter(function (p) { return !p.data.unreadable; })[0];
   var note = {
     id: Date.now(),
-    title: ((first && first.data.title) || 'My notes') + (partial ? rangeLabel : ''),
+    title: (pageTitle(first && first.data) || 'My notes') + (partial ? rangeLabel : ''),
     created: Date.now(),
     pages: pages,
     usage: usage,
     balanceStart: balanceStart,
     rupees: rupeesFor(usage),
-    needsTopics: isAi() && readSettings().stories !== 'off'
+    needsTopics: isAi() && readSettings().stories !== 'off' && !(first && first.data.exact)
   };
   notes.unshift(note);
   persistNotes();
@@ -531,7 +586,7 @@ function startTopics(note) {
   var digest = [];
   note.pages.forEach(function (p, i) {
     var d = p.data || {};
-    if (d.unreadable) return;
+    if (d.unreadable || d.exact) return;
     var points = [];
     var headings = [];
     list(d.sections).forEach(function (sec) {
@@ -662,6 +717,8 @@ function sheetHtml(page, index, total) {
   if (d.unreadable) {
     main += '<h2 class="sheet-title">Could not read this page</h2>' +
       '<div class="unreadable">' + esc(d.reason || 'The picture was not clear enough.') + '</div>';
+  } else if (d.exact) {
+    main += exactHtml(d.text);
   } else {
     main += '<h2 class="sheet-title">' + ink(d.title || 'Notes') + '</h2>';
     list(d.sections).forEach(function (s) {
@@ -735,7 +792,7 @@ function onMarginInput(e) {
 }
 
 /* ───────── settings ───────── */
-var SETTING_IDS = ['geminiKey', 'geminiModel', 'claudeKey', 'claudeModel', 'deepseekKey', 'deepseekModel', 'openrouterKey', 'openrouterModel', 'mnemonicStyle', 'subject', 'priceIn', 'priceOut', 'usdInr', 'usdCny'];
+var SETTING_IDS = ['geminiKey', 'geminiModel', 'claudeKey', 'claudeModel', 'deepseekKey', 'deepseekModel', 'openrouterKey', 'openrouterModel', 'mnemonicStyle', 'subject', 'outputMode', 'customPrompt', 'priceIn', 'priceOut', 'usdInr', 'usdCny'];
 
 function readSettings() {
   try { return JSON.parse(Android.getSettings() || '{}') || {}; } catch (e) { return {}; }
@@ -755,6 +812,9 @@ function openSettings() {
   $('#openrouterModel').value = s.openrouterModel || s.defaultOpenrouterModel || '';
   $('#mnemonicStyle').value = s.mnemonicStyle || 'mix';
   $('#subject').value = s.subject || '';
+  $('#outputMode').value = s.outputMode === 'exact' ? 'exact' : 'notes';
+  $('#customPrompt').value = s.customPrompt || DEFAULT_EXACT_PROMPT;
+  $('#exact-box').classList.toggle('hidden', s.outputMode !== 'exact');
   SWITCHES.forEach(function (sw) {
     $('#' + sw[0]).checked = s[sw[0]] ? s[sw[0]] === 'on' : sw[1];
   });
@@ -920,6 +980,10 @@ function init() {
   document.querySelectorAll('[data-pick]').forEach(function (pick) {
     pick.addEventListener('change', function () { onModelPick(pick); });
   });
+  $('#outputMode').onchange = function () {
+    $('#exact-box').classList.toggle('hidden', this.value !== 'exact');
+  };
+  $('#btn-reset-prompt').onclick = function () { $('#customPrompt').value = DEFAULT_EXACT_PROMPT; };
   $('#btn-prices').onclick = function () {
     var st = formSettings();
     if (AI_PROVIDERS.indexOf(st.provider) < 0) { toast('Choose Gemini, Claude or DeepSeek first. The no-key mode has no cost.'); return; }

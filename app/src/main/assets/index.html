@@ -189,6 +189,19 @@
 
     <div class="card">
       <h2 class="card-title">Your notes</h2>
+      <label class="field">What to make
+        <select id="outputMode">
+          <option value="notes">Study notes: pointers, summary, stories</option>
+          <option value="exact">Exact transcription: word for word, with doubtful points</option>
+        </select>
+      </label>
+      <div id="exact-box" class="hidden">
+        <label class="field">Instructions given to the AI (you can edit them)
+          <textarea id="customPrompt" rows="12" spellcheck="false"></textarea>
+        </label>
+        <button class="link-btn" id="btn-reset-prompt">Put back the law-notes instructions</button>
+        <p class="hint small">In this mode the page is copied as written, with no summary or stories.</p>
+      </div>
       <label class="field">Memory stories
         <select id="mnemonicStyle">
           <option value="mix">Mix of traditional and made-up</option>

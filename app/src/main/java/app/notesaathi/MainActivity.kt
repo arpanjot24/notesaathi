@@ -374,7 +374,12 @@ class MainActivity : ComponentActivity() {
                 try {
                     val s = settings()
                     val notes = if (s.optString("provider", "offline") == "offline") {
-                        Offline.makeNotes(pages.file(index))
+                        if (s.optString("outputMode") == "exact") {
+                            // no-key mode: the phone's own reading, word for word (no doubtful points)
+                            JSONObject().put("exact", true).put("text", Offline.readText(pages.file(index)))
+                        } else {
+                            Offline.makeNotes(pages.file(index))
+                        }
                     } else {
                         Ai.makeNotes(s, pages.file(index))
                     }

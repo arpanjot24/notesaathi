@@ -151,6 +151,12 @@ button { font: inherit; color: inherit; }
   background: #fff; border: 1px solid #d9cdb2; border-radius: 10px;
 }
 .field input:focus, .field select:focus { outline: 2px solid var(--saffron); outline-offset: 0; border-color: var(--saffron); }
+.field textarea {
+  display: block; width: 100%; margin-top: 6px; padding: 10px 12px;
+  font: inherit; font-size: 14px; font-weight: 400; line-height: 1.4; color: var(--ink);
+  background: #fff; border: 1px solid #d9cdb2; border-radius: 10px; resize: vertical;
+}
+.field textarea:focus { outline: 2px solid var(--saffron); border-color: var(--saffron); }
 .key-row { display: flex; align-items: center; }
 .key-row input { flex: 1; min-width: 0; }
 .key-row .link-btn { margin: 6px 0 0 8px; flex: none; }
@@ -237,6 +243,11 @@ button { font: inherit; color: inherit; }
 .box-story .links li::before { content: "→"; left: 0; color: #1b6b33; }
 .story-links-title { font-size: 14px; color: #1b6b33; font-weight: 700; margin-top: 6px; }
 .basic-note { font-family: -apple-system, "Roboto", sans-serif; font-size: 12px; line-height: 1.4; color: var(--muted); margin-top: 14px; }
+.exact-line { margin: 3px 0; min-height: 0.6em; white-space: pre-wrap; }
+.exact-line b { color: var(--key); }
+.exact-line s { color: var(--muted); }
+.box-doubt { background: #fdeceb; border: 1.5px dashed #d98a86; }
+.box-doubt h4 { color: #a3261f; }
 .unreadable { color: var(--muted); padding: 20px 0; }
 
 @media (min-width: 600px) {
@@ -274,7 +285,9 @@ button { font: inherit; color: inherit; }
   .sheet { background: #fff; color: #000; border-bottom: 0.2mm solid #bbb; }
   .sheet-title { border-bottom: 0.3mm solid #999; }
   .sheet h3 { color: #000; }
-  .box-summary, .box-story { background: none; border: 0.25mm solid #999; }
+  .box-summary, .box-story, .box-doubt { background: none; border: 0.25mm solid #999; }
+  .box-doubt h4 { color: #000; }
+  .exact-line { margin: 1pt 0; }
   .box-summary h4, .box-story h4, .story-links-title { color: #000; }
   .hl-d { background: none; }
   .topic-tag { background: none; color: #000; border: 0.25mm solid #666; }
