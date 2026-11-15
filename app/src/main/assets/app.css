@@ -267,9 +267,20 @@ button { font: inherit; color: inherit; }
   .box-story p { margin: 2pt 0 3pt; }
   .story-links-title { font-size: 10pt; margin-top: 2pt; }
   .topic-tag { font-size: 9pt; margin-bottom: 2pt; }
+  /* ink saving: white paper, no filled boxes or highlighter, thin outlines only */
+  .sheet { background: #fff; color: #000; border-bottom: 0.2mm solid #bbb; }
+  .sheet-title { border-bottom: 0.3mm solid #999; }
+  .sheet h3 { color: #000; }
+  .box-summary, .box-story { background: none; border: 0.25mm solid #999; }
+  .box-summary h4, .box-story h4, .story-links-title { color: #000; }
+  .hl-d { background: none; }
+  .topic-tag { background: none; color: #000; border: 0.25mm solid #666; }
+  .sheet-margin { border-left: 0.25mm solid #999; }
+  .sheet-margin textarea { color: #000; }
+  .margin-label { color: #888; }
   /* ruled margin for handwriting: lines 8 mm apart */
   .sheet-margin {
-    background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 7.7mm, var(--rule) 7.7mm, var(--rule) 8mm);
+    background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 7.85mm, #c8c8c8 7.85mm, #c8c8c8 8mm);
     background-position: 0 0;
   }
   .margin-label { height: 8mm; line-height: 8mm; font-size: 8.5pt; }
