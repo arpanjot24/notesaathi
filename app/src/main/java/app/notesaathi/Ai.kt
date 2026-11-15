@@ -24,7 +24,7 @@ object Ai {
         "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-fable-5-2", "claude-fable-5-1"
     )
 
-    class AiException(message: String) : Exception(message)
+    class AiException(message: String, val code: Int = 0) : Exception(message)
 
     private const val PAGE_PROMPT = """You turn a photo or scan of one page of study notes into clean, easy-to-read English notes.
 
@@ -39,15 +39,14 @@ Do this:
    [[d:...]] around a definition, rule, law or formula
    [[n:...]] around an important number, date, name or place
    [[u:...]] around a word you could not read clearly, containing your best guess
-5. Write a summary of 2 to 3 short lines covering the whole page.
+SUMMARY_STEP
 
 Reply with one JSON object only, no markdown fences and no other text, in exactly this shape:
 {
   "title": "short title for this page",
   "topic": "the chapter or topic this page belongs to",
   "language": "language(s) the page was written in",
-  "sections": [ { "heading": "...", "points": ["...", "..."] } ],
-  "summary": ["...", "..."]
+  "sections": [ { "heading": "...", "points": ["...", "..."] } ]SUMMARY_FIELD
 }
 
 If the picture has no readable notes (blank, too blurry, or not notes at all), reply instead with:
@@ -86,11 +85,34 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
     private fun usage(tokensIn: Long, tokensOut: Long): JSONObject =
         JSONObject().put("in", tokensIn).put("out", tokensOut)
 
+    /** Cost saver: a smaller picture means fewer input tokens. */
+    private fun shrink(image: File): ByteArray {
+        val bmp = android.graphics.BitmapFactory.decodeFile(image.absolutePath) ?: return image.readBytes()
+        val scale = 1100f / maxOf(bmp.width, bmp.height)
+        if (scale >= 1f) {
+            bmp.recycle()
+            return image.readBytes()
+        }
+        val small = android.graphics.Bitmap.createScaledBitmap(
+            bmp, maxOf(1, (bmp.width * scale).toInt()), maxOf(1, (bmp.height * scale).toInt()), true
+        )
+        val out = java.io.ByteArrayOutputStream()
+        small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+        if (small !== bmp) bmp.recycle()
+        small.recycle()
+        return out.toByteArray()
+    }
+
     /** One page picture in, structured notes out. "_usage" carries the tokens billed. */
     fun makeNotes(settings: JSONObject, image: File): JSONObject {
-        val b64 = Base64.encodeToString(image.readBytes(), Base64.NO_WRAP)
+        val bytes = if (settings.optString("smallPictures") == "on") shrink(image) else image.readBytes()
+        val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        val summaries = settings.optString("summaries") != "off"
+        val system = PAGE_PROMPT
+            .replace("SUMMARY_STEP", if (summaries) "5. Write a summary of 2 to 3 short lines covering the whole page." else "")
+            .replace("SUMMARY_FIELD", if (summaries) ",\n  \"summary\": [\"...\", \"...\"]" else "")
         val user = "Here is the page.${subjectNote(settings)} Make the notes."
-        val reply = ask(settings, PAGE_PROMPT, user, b64)
+        val reply = ask(settings, system, user, b64)
         return parseJson(reply.text).put("_usage", usage(reply.tokensIn, reply.tokensOut))
     }
 
@@ -171,13 +193,23 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
             parts.put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", imageB64)))
         }
         parts.put(JSONObject().put("text", user))
+        val lowThinking = settings.optString("lowThinking") == "on"
+        val config = JSONObject().put("responseMimeType", "application/json")
+        if (lowThinking) config.put("thinkingConfig", JSONObject().put("thinkingLevel", "low"))
         val body = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
             .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", parts)))
-            .put("generationConfig", JSONObject().put("responseMimeType", "application/json"))
+            .put("generationConfig", config)
 
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
-        val res = postWithRetry(url, mapOf("x-goog-api-key" to key), body.toString(), "Gemini")
+        val res = try {
+            postWithRetry(url, mapOf("x-goog-api-key" to key), body.toString(), "Gemini")
+        } catch (e: AiException) {
+            if (!lowThinking || e.code != 400) throw e
+            // this model does not accept the thinking setting: ask again without it
+            config.remove("thinkingConfig")
+            postWithRetry(url, mapOf("x-goog-api-key" to key), body.toString(), "Gemini")
+        }
         val json = JSONObject(res)
 
         val candidates = json.optJSONArray("candidates")
@@ -225,7 +257,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
             .put("model", model)
             .put("max_tokens", 16000)
             .put("system", system)
-            .put("output_config", JSONObject().put("effort", "medium"))
+            .put("output_config", JSONObject().put("effort", if (settings.optString("lowThinking") == "on") "low" else "medium"))
             .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
 
         val headers = mutableMapOf("x-api-key" to key, "anthropic-version" to "2023-06-01")
@@ -291,7 +323,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
             if (retryable && attempt < waits.size) {
                 Thread.sleep(waits[attempt++]); continue
             }
-            throw AiException(errorMessage(who, code, text))
+            throw AiException(errorMessage(who, code, text), code)
         }
     }
 

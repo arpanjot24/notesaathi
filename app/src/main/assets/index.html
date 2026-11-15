@@ -159,6 +159,16 @@
     </div>
 
     <div class="card">
+      <h2 class="card-title">Save on cost</h2>
+      <p class="hint small" style="margin-top:0">These only matter with a Gemini or Claude key. The no-key mode is always free.</p>
+      <label class="radio"><input type="checkbox" id="stories"> <span><b>Memory stories for each topic</b><small>Turn off to skip the extra request that writes them.</small></span></label>
+      <label class="radio"><input type="checkbox" id="summaries"> <span><b>"In short" summary on each page</b><small>Turn off for shorter, cheaper pages.</small></span></label>
+      <label class="radio"><input type="checkbox" id="lowThinking"> <span><b>Quick mode</b><small>The AI spends less effort per page. Usually the biggest saving; may misread very messy handwriting.</small></span></label>
+      <label class="radio"><input type="checkbox" id="smallPictures"> <span><b>Smaller pictures</b><small>Sends a lighter copy of each page. Small saving; avoid for tiny or faint writing.</small></span></label>
+      <p class="hint small">Cheaper model: in the Gemini box above, set Model to <b>gemini-flash-lite-latest</b>. For Claude, <b>claude-haiku-5-5</b> is the cheapest and <b>claude-sonnet-5-5</b> is in between.</p>
+    </div>
+
+    <div class="card">
       <h2 class="card-title">Cost estimate</h2>
       <p class="hint small" style="margin-top:0">The app counts the exact tokens each request used and multiplies by these prices. Leave a box empty to use the built-in price shown in grey. Prices change, so check your AI provider's pricing page now and then.</p>
       <label class="field">Input price (US$ per 1 million tokens) <input type="number" step="any" min="0" id="priceIn" inputmode="decimal"></label>

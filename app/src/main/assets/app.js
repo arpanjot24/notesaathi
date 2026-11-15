@@ -345,7 +345,7 @@ function finishJob() {
     pages: pages,
     usage: usage,
     rupees: rupeesFor(usage),
-    needsTopics: isAi()
+    needsTopics: isAi() && readSettings().stories !== 'off'
   };
   notes.unshift(note);
   persistNotes();
@@ -532,6 +532,9 @@ function openSettings() {
   $('#claudeModel').value = s.claudeModel || s.defaultClaudeModel || '';
   $('#mnemonicStyle').value = s.mnemonicStyle || 'mix';
   $('#subject').value = s.subject || '';
+  SWITCHES.forEach(function (sw) {
+    $('#' + sw[0]).checked = s[sw[0]] ? s[sw[0]] === 'on' : sw[1];
+  });
   $('#priceIn').value = s.priceIn || '';
   $('#priceOut').value = s.priceOut || '';
   $('#usdInr').value = s.usdInr || '';
@@ -552,9 +555,13 @@ function showPriceHints() {
   $('#usdInr').placeholder = 'built-in: ' + DEFAULT_USD_INR;
 }
 
+/* switches: [id, on by default] */
+var SWITCHES = [['stories', true], ['summaries', true], ['lowThinking', false], ['smallPictures', false]];
+
 function formSettings() {
   var s = {};
   SETTING_IDS.forEach(function (id) { s[id] = $('#' + id).value.trim(); });
+  SWITCHES.forEach(function (sw) { s[sw[0]] = $('#' + sw[0]).checked ? 'on' : 'off'; });
   var checked = document.querySelector('input[name=provider]:checked');
   s.provider = checked ? checked.value : 'offline';
   return s;

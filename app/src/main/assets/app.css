@@ -135,7 +135,7 @@ button { font: inherit; color: inherit; }
 
 /* ── settings ── */
 .radio { display: flex; align-items: flex-start; padding: 10px 0; }
-.radio input { width: 20px; height: 20px; margin: 2px 12px 0 0; accent-color: var(--saffron); flex: none; }
+.radio input { width: 22px; height: 22px; margin: 2px 12px 0 0; accent-color: var(--saffron); flex: none; }
 .radio small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
 .field { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-top: 10px; }
 .field input, .field select {
