@@ -62,6 +62,10 @@
         <div class="job-line"><span class="spinner" id="job-spin"></span><span id="job-text"></span></div>
         <div class="bar"><div class="bar-fill" id="job-bar"></div></div>
         <div class="job-cost" id="job-cost"></div>
+        <div class="job-live" id="job-live">
+          <button class="btn btn-small btn-read" id="btn-read">Read pages done so far</button>
+          <button class="btn btn-small" id="btn-pause">Pause</button>
+        </div>
         <div id="job-errors" class="job-errors"></div>
         <div id="job-actions" class="job-actions hidden">
           <button class="btn btn-primary" id="btn-retry">Continue</button>
@@ -103,6 +107,11 @@
       <span class="spinner" id="topics-spin"></span>
       <span id="topics-text"></span>
       <button class="btn btn-small" id="btn-topics">Write stories</button>
+    </div>
+    <div id="live-bar" class="topics-bar live-bar no-print hidden">
+      <span class="spinner" id="live-spin"></span>
+      <span id="live-text"></span>
+      <button class="btn btn-small" id="btn-live">Show new pages</button>
     </div>
     <div id="sheets"></div>
   </main>

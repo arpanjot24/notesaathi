@@ -115,6 +115,11 @@ button { font: inherit; color: inherit; }
 .bar { height: 8px; background: #eadfc8; border-radius: 4px; overflow: hidden; margin-top: 10px; }
 .bar-fill { height: 100%; width: 0; background: var(--saffron); transition: width .3s; }
 .job-cost { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.job-live { display: flex; flex-wrap: wrap; margin-top: 4px; }
+.job-live .btn { margin: 8px 8px 0 0; }
+.btn-read { background: var(--indigo); border-color: var(--indigo); color: #fff; }
+.live-bar { background: #fff3df; border-color: #ecd3a4; position: sticky; top: 68px; z-index: 4; }
+.live-bar #live-text { flex: 1; }
 .job-errors { font-size: 14px; color: var(--key); margin-top: 10px; line-height: 1.4; }
 .job-errors div { margin-bottom: 6px; }
 .job-actions { display: flex; flex-wrap: wrap; margin-top: 6px; }
