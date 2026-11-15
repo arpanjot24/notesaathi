@@ -26,6 +26,44 @@ function list(v) {
   return [v];
 }
 
+/* ───────── cost ───────── */
+/* Built-in prices in US$ per million tokens [input, output]; editable in Settings. */
+function defaultPrices(st) {
+  if (st.provider === 'claude') {
+    var m = st.claudeModel || st.defaultClaudeModel || '';
+    if (m.indexOf('haiku') >= 0) return [0.1, 0.5];
+    if (m.indexOf('sonnet') >= 0) return [2, 10];
+    if (m.indexOf('fable') >= 0 || m.indexOf('mythos') >= 0) return [8, 40];
+    return [4, 20];
+  }
+  var g = st.geminiModel || st.defaultGeminiModel || '';
+  if (g.indexOf('lite') >= 0) return [0.25, 1.5];
+  if (g.indexOf('pro') >= 0) return [2, 10];
+  return [0.75, 3.75];
+}
+var DEFAULT_USD_INR = 88;
+
+function rupeesFor(usage) {
+  var st = readSettings();
+  if (!usage || (st.provider !== 'gemini' && st.provider !== 'claude')) return 0;
+  var d = defaultPrices(st);
+  var pin = Number(st.priceIn) > 0 ? Number(st.priceIn) : d[0];
+  var pout = Number(st.priceOut) > 0 ? Number(st.priceOut) : d[1];
+  var rate = Number(st.usdInr) > 0 ? Number(st.usdInr) : DEFAULT_USD_INR;
+  return ((usage.in || 0) * pin + (usage.out || 0) * pout) / 1e6 * rate;
+}
+function money(r) { return '₹' + (r >= 100 ? r.toFixed(0) : r.toFixed(2)); }
+function tokens(n) { return Number(n || 0).toLocaleString('en-IN'); }
+function addUsage(total, u) {
+  if (!u) return;
+  total.in = (total.in || 0) + (u.in || 0);
+  total.out = (total.out || 0) + (u.out || 0);
+}
+function isAi() {
+  var p = readSettings().provider;
+  return p === 'gemini' || p === 'claude';
+}
+
 /* ───────── saved notes ───────── */
 var notes = [];
 function loadNotes() {
@@ -131,7 +169,7 @@ function renderNotesList() {
   box.innerHTML = notes.map(function (n) {
     var d = new Date(n.created);
     var when = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-    var count = n.pages.length + (n.pages.length === 1 ? ' page' : ' pages');
+    var count = n.pages.length + (n.pages.length === 1 ? ' page' : ' pages') + (n.rupees ? ' · ' + money(n.rupees) : '');
     return '<div class="note-row" data-id="' + n.id + '"><span class="note-row-ico">📒</span><div>' +
       '<div class="note-row-title">' + esc(n.title) + '</div>' +
       '<div class="note-row-meta">' + count + ' · ' + esc(when) + '</div></div></div>';
@@ -152,13 +190,14 @@ function hasKey() {
 function newJob(n, from, to) {
   return {
     n: n, from: from || 0, to: to == null ? n - 1 : to,
-    results: new Array(n), errors: {}, pending: [], active: 0, paused: false, reason: '', streak: 0
+    results: new Array(n), errors: {}, pending: [], active: 0, paused: false, reason: '', streak: 0,
+    usage: { in: 0, out: 0 }
   };
 }
 
 /* Progress is written after every page, so a long run survives the app being closed. */
 function saveJob() {
-  Android.saveData('job', job ? JSON.stringify({ n: job.n, from: job.from, to: job.to, results: job.results }) : '');
+  Android.saveData('job', job ? JSON.stringify({ n: job.n, from: job.from, to: job.to, results: job.results, usage: job.usage }) : '');
 }
 
 function restoreJob() {
@@ -166,6 +205,7 @@ function restoreJob() {
   try { saved = JSON.parse(Android.loadData('job') || 'null'); } catch (e) { saved = null; }
   if (!saved || !saved.n || saved.n !== Android.pageCount()) { Android.saveData('job', ''); return; }
   job = newJob(saved.n, saved.from, saved.to);
+  if (saved.usage) job.usage = saved.usage;
   for (var i = job.from; i <= job.to; i++) {
     if (saved.results && saved.results[i]) job.results[i] = saved.results[i];
     else job.pending.push(i);
@@ -232,6 +272,10 @@ function renderJob() {
   });
   if (failedKeys.length > 4) shownErrors.push('<div>…and ' + (failedKeys.length - 4) + ' more pages failed.</div>');
   $('#job-errors').innerHTML = shownErrors.join('');
+  var spent = rupeesFor(job.usage);
+  $('#job-cost').textContent = spent > 0
+    ? 'API cost so far: about ' + money(spent) + (done ? ' (' + money(spent / done) + ' per page)' : '')
+    : '';
   $('#job-actions').classList.toggle('hidden', running || (failedKeys.length === 0 && left === 0));
   $('#btn-keep').classList.toggle('hidden', done === 0);
 }
@@ -240,6 +284,8 @@ function onPageDone(d) {
   if (!job) return;
   job.active--;
   if (d.ok) {
+    addUsage(job.usage, d.data._usage);
+    delete d.data._usage;
     job.results[d.index] = d.data;
     job.streak = 0;
     saveJob();
@@ -285,6 +331,7 @@ function finishJob() {
   var reachedEnd = job.to >= job.n - 1;
   var rangeLabel = ' (pages ' + (job.from + 1) + '–' + (job.to + 1) + ')';
   var nextStart = job.to + 2;
+  var usage = job.usage;
   job = null;
   saveJob();
   awake(false);
@@ -295,7 +342,10 @@ function finishJob() {
     id: Date.now(),
     title: ((first && first.data.title) || 'My notes') + (partial ? rangeLabel : ''),
     created: Date.now(),
-    pages: pages
+    pages: pages,
+    usage: usage,
+    rupees: rupeesFor(usage),
+    needsTopics: isAi()
   };
   notes.unshift(note);
   persistNotes();
@@ -310,12 +360,100 @@ function finishJob() {
   renderPages();
   renderNotesList();
   openNote(note.id);
+  if (note.needsTopics) startTopics(note);
+}
+
+/* ───────── topics: one memory story per topic, written after all pages are read ───────── */
+var topicsBusy = {};
+
+function plain(s) { return String(s == null ? '' : s).replace(/\[\[[kdnu]:|\]\]/g, ''); }
+
+function startTopics(note) {
+  if (topicsBusy[note.id]) return;
+  var digest = [];
+  note.pages.forEach(function (p, i) {
+    var d = p.data || {};
+    if (d.unreadable) return;
+    var points = [];
+    var headings = [];
+    list(d.sections).forEach(function (sec) {
+      if (typeof sec === 'string') { points.push(plain(sec)); return; }
+      if (sec.heading) headings.push(plain(sec.heading));
+      list(sec.points).forEach(function (pt) { points.push(plain(pt)); });
+    });
+    digest.push({
+      page: i + 1,
+      title: plain(d.title || ''),
+      topic: plain(d.topic || ''),
+      headings: headings,
+      points: points.join(' | ').slice(0, 900)
+    });
+  });
+  if (!digest.length) { note.needsTopics = false; persistNotes(); return; }
+  topicsBusy[note.id] = true;
+  renderTopicsBar();
+  Android.makeTopics(String(note.id), JSON.stringify(digest));
+}
+
+function onTopicsDone(d) {
+  var id = Number(d.id);
+  delete topicsBusy[id];
+  var note = notes.filter(function (n) { return n.id === id; })[0];
+  if (!note) return;
+  if (!d.ok) {
+    toast(d.error || 'Could not write the memory stories.');
+    renderTopicsBar();
+    return;
+  }
+  note.pages.forEach(function (p) { delete p.topicTitle; delete p.topicStory; });
+  var total = note.pages.length;
+  list(d.data && d.data.topics).forEach(function (t) {
+    var from = Math.round(Number(t.from)), to = Math.round(Number(t.to));
+    if (!(from >= 1) || !(to >= from)) return;
+    if (to > total) to = total;
+    if (from > total) return;
+    if (t.title) note.pages[from - 1].topicTitle = String(t.title);
+    if (t.mnemonic && t.mnemonic.story) note.pages[to - 1].topicStory = t.mnemonic;
+  });
+  note.needsTopics = false;
+  if (!note.usage) note.usage = { in: 0, out: 0 };
+  var extra = d.data && d.data._usage;
+  addUsage(note.usage, extra);
+  note.rupees = (note.rupees || 0) + rupeesFor(extra);
+  persistNotes();
+  if (currentNote && currentNote.id === id && currentView === 'note') {
+    var y = window.pageYOffset;
+    openNote(id);
+    window.scrollTo(0, y);
+  }
+}
+
+function renderTopicsBar() {
+  var bar = $('#topics-bar');
+  if (!currentNote) { bar.classList.add('hidden'); return; }
+  var busy = !!topicsBusy[currentNote.id];
+  var needed = !!currentNote.needsTopics;
+  bar.classList.toggle('hidden', !busy && !needed);
+  $('#topics-spin').classList.toggle('hidden', !busy);
+  $('#btn-topics').classList.toggle('hidden', busy);
+  $('#topics-text').textContent = busy
+    ? 'Grouping pages into topics and writing a memory story for each…'
+    : 'Memory stories for each topic are not written yet.';
+}
+
+function renderNoteCost() {
+  var n = currentNote;
+  var u = n && n.usage;
+  if (!n || !n.rupees || !u) { $('#note-cost').textContent = ''; return; }
+  $('#note-cost').textContent = 'API cost for this document: about ' + money(n.rupees) +
+    ' (' + money(n.rupees / n.pages.length) + ' per page) · ' + tokens(u.in) + ' tokens in, ' + tokens(u.out) + ' out';
 }
 
 /* ───────── note viewer ───────── */
 function sheetHtml(page, index, total) {
   var d = page.data || {};
-  var main = '<div class="sheet-page">Page ' + (page.source || index + 1) +
+  var main = (page.topicTitle ? '<div class="topic-tag">Topic: ' + esc(page.topicTitle) + '</div>' : '') +
+    '<div class="sheet-page">Page ' + (page.source || index + 1) +
     (d.language ? ' · from ' + esc(d.language) : '') + '</div>';
 
   if (d.unreadable) {
@@ -333,15 +471,18 @@ function sheetHtml(page, index, total) {
       main += '<div class="box box-summary"><h4>📝 In short</h4><ul>' +
         summary.map(function (p) { return '<li>' + ink(p) + '</li>'; }).join('') + '</ul></div>';
     }
-    var m = d.mnemonic;
-    if (m && (m.story || m.title)) {
-      var links = list(m.links);
-      main += '<div class="box box-story"><h4>📖 Remember it with a story' +
-        (m.title ? ': ' + ink(m.title) : '') + '</h4><p>' + ink(m.story || '') + '</p>' +
-        (links.length ? '<div class="story-links-title">How it connects</div><ul class="links">' +
-          links.map(function (p) { return '<li>' + ink(p) + '</li>'; }).join('') + '</ul>' : '') +
-        '</div>';
-    }
+  }
+
+  // the story sits at the end of its topic; older notes and the no-key mode carry one per page
+  var m = page.topicStory || d.mnemonic;
+  if (m && (m.story || m.title)) {
+    var links = list(m.links);
+    main += '<div class="box box-story"><h4>📖 ' +
+      (page.topicStory ? 'Remember this topic with a story' : 'Remember it with a story') +
+      (m.title ? ': ' + ink(m.title) : '') + '</h4><p>' + ink(m.story || '') + '</p>' +
+      (links.length ? '<div class="story-links-title">How it connects</div><ul class="links">' +
+        links.map(function (p) { return '<li>' + ink(p) + '</li>'; }).join('') + '</ul>' : '') +
+      '</div>';
   }
 
   if (d.basic) {
@@ -360,6 +501,8 @@ function openNote(id) {
   $('#note-title').textContent = currentNote.title;
   var total = currentNote.pages.length;
   $('#sheets').innerHTML = currentNote.pages.map(function (p, i) { return sheetHtml(p, i, total); }).join('');
+  renderTopicsBar();
+  renderNoteCost();
   show('note');
 }
 
@@ -373,7 +516,7 @@ function onMarginInput(e) {
 }
 
 /* ───────── settings ───────── */
-var SETTING_IDS = ['geminiKey', 'geminiModel', 'claudeKey', 'claudeModel', 'mnemonicStyle', 'subject'];
+var SETTING_IDS = ['geminiKey', 'geminiModel', 'claudeKey', 'claudeModel', 'mnemonicStyle', 'subject', 'priceIn', 'priceOut', 'usdInr'];
 
 function readSettings() {
   try { return JSON.parse(Android.getSettings() || '{}') || {}; } catch (e) { return {}; }
@@ -389,9 +532,24 @@ function openSettings() {
   $('#claudeModel').value = s.claudeModel || s.defaultClaudeModel || '';
   $('#mnemonicStyle').value = s.mnemonicStyle || 'mix';
   $('#subject').value = s.subject || '';
+  $('#priceIn').value = s.priceIn || '';
+  $('#priceOut').value = s.priceOut || '';
+  $('#usdInr').value = s.usdInr || '';
+  showPriceHints();
   $('#test-gemini').textContent = '';
   $('#test-claude').textContent = '';
   show('settings');
+}
+
+function showPriceHints() {
+  var st = formSettings();
+  st.defaultGeminiModel = st.geminiModel;
+  st.defaultClaudeModel = st.claudeModel;
+  var d = defaultPrices(st);
+  var ai = st.provider === 'gemini' || st.provider === 'claude';
+  $('#priceIn').placeholder = ai ? 'built-in: ' + d[0] : 'no cost in no-key mode';
+  $('#priceOut').placeholder = ai ? 'built-in: ' + d[1] : 'no cost in no-key mode';
+  $('#usdInr').placeholder = 'built-in: ' + DEFAULT_USD_INR;
 }
 
 function formSettings() {
@@ -431,6 +589,8 @@ window.onNative = function (event, d) {
     if (d.message) toast(d.message);
   } else if (event === 'error') {
     toast(d.message || 'Something went wrong.');
+  } else if (event === 'topicsDone') {
+    onTopicsDone(d);
   } else if (event === 'keyTest') {
     var line = $('#test-' + d.provider);
     if (line) {
@@ -515,6 +675,14 @@ function init() {
   $('#sheets').addEventListener('input', onMarginInput);
 
   $('#btn-update').onclick = function () { Android.installUpdate(); };
+  $('#btn-topics').onclick = function () {
+    if (!currentNote) return;
+    if (!isAi()) { toast('Memory stories per topic need an AI key. Choose Gemini or Claude in Settings.'); return; }
+    startTopics(currentNote);
+  };
+  document.querySelectorAll('input[name=provider], #geminiModel, #claudeModel').forEach(function (el) {
+    el.addEventListener('change', showPriceHints);
+  });
   $('#modal-no').onclick = closeModal;
   $('#modal-yes').onclick = function () {
     var yes = modalYes;

@@ -2,7 +2,7 @@
    Inside the app the real `Android` object exists and this file does nothing. */
 (function () {
   if (window.Android) return;
-  var settings = { provider: 'offline' };
+  var settings = { provider: 'gemini', geminiKey: 'demo' };
   var count = 0;
   var sample = {
     title: 'Photosynthesis',
@@ -27,11 +27,12 @@
       'Plants make food in their leaves using sunlight, water and carbon dioxide.',
       'Chlorophyll traps the light; glucose and oxygen come out.'
     ],
-    mnemonic: {
-      title: "Birbal's green kitchen",
-      story: 'Akbar asked who the best cook in the kingdom was. Birbal pointed at a neem tree. "This cook takes air from the courtyard, water from the well and fire from the sun, and cooks in a green pot. It keeps the sweet for itself and gives the fresh air to all of us for free."',
-      links: ['Air from the courtyard = carbon dioxide', 'Water from the well = water from roots', 'Fire from the sun = sunlight', 'Green pot = chlorophyll', 'Sweet = glucose, fresh air = oxygen']
-    }
+    _usage: { in: 1900, out: 950 }
+  };
+  var story = {
+    title: "Birbal's green kitchen",
+    story: 'Akbar asked who the best cook in the kingdom was. Birbal pointed at a neem tree. "This cook takes air from the courtyard, water from the well and fire from the sun, and cooks in a green pot. It keeps the sweet for itself and gives the fresh air to all of us for free."',
+    links: ['Air from the courtyard = carbon dioxide', 'Water from the well = water from roots', 'Fire from the sun = sunlight', 'Green pot = chlorophyll', 'Sweet = glucose, fresh air = oxygen']
   };
   window.Android = {
     version: function () { return '1.0.0 (preview)'; },
@@ -44,11 +45,18 @@
     loadData: function (n) { return localStorage.getItem('mock.' + n) || ''; },
     saveData: function (n, j) { localStorage.setItem('mock.' + n, j); return true; },
     keepAwake: function () {},
+    makeTopics: function (id, digestJson) {
+      var n = JSON.parse(digestJson).length;
+      var half = Math.max(1, Math.ceil(n / 2));
+      var topics = [{ from: 1, to: half, title: 'Photosynthesis', mnemonic: story }];
+      if (n > half) topics.push({ from: half + 1, to: n, title: 'Respiration', mnemonic: story });
+      setTimeout(function () { window.onNative('topicsDone', { id: id, ok: true, data: { topics: topics, _usage: { in: 800, out: 600 } } }); }, 900);
+    },
     testKey: function (j) { var p = JSON.parse(j).provider; setTimeout(function () { window.onNative('keyTest', { provider: p, ok: true, message: 'Key works (preview).' }); }, 300); },
     thumb: function () { return ''; },
     removePage: function () { count = Math.max(0, count - 1); },
     clearPages: function () { count = 0; },
-    transcribe: function (i) { setTimeout(function () { window.onNative('pageDone', { index: i, ok: true, data: sample }); }, 700); },
+    transcribe: function (i) { setTimeout(function () { window.onNative('pageDone', { index: i, ok: true, data: JSON.parse(JSON.stringify(sample)) }); }, 700); },
     print: function () { window.print(); },
     checkUpdate: function () {},
     installUpdate: function () {}

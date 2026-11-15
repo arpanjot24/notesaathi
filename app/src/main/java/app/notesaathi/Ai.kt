@@ -14,6 +14,10 @@ object Ai {
 
     const val DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
     const val DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
+    private const val TOPIC_CHUNK = 30
+
+    /** The model's text plus the tokens the service says it billed for it. */
+    private class Reply(val text: String, val tokensIn: Long, val tokensOut: Long)
 
     // Claude models that accept the server-side refusal fallback.
     private val CLAUDE_FALLBACK_MODELS = setOf(
@@ -22,58 +26,102 @@ object Ai {
 
     class AiException(message: String) : Exception(message)
 
-    private const val SYSTEM_PROMPT = """You turn a photo or scan of one page of study notes into clean, easy-to-read English notes.
+    private const val PAGE_PROMPT = """You turn a photo or scan of one page of study notes into clean, easy-to-read English notes.
 
 The page may be handwritten or printed, and may be in any language (often Hindi, Punjabi or another Indian language, sometimes mixed with English). The reader is a student who wants to revise quickly.
 
 Do this:
 1. Read everything on the page carefully, including headings, side notes, labels on diagrams and anything underlined or boxed.
 2. Write it in simple, clear English. Keep technical terms, names and formulae exact. If the original-language word matters, give it once in brackets after the English.
-3. Rewrite it as short pointers grouped under clear headings. One idea per pointer. Keep every fact from the page; do not add facts that are not on the page and do not drop any.
+3. Rewrite it as short pointers grouped under clear headings. One idea per pointer, as few words as carry the full meaning. Keep every fact from the page; do not add facts that are not on the page and do not drop any.
 4. Mark what matters most, sparingly (at most one or two marks in a pointer, and not in every pointer):
    [[k:...]] around a key term or the single most important phrase
    [[d:...]] around a definition, rule, law or formula
    [[n:...]] around an important number, date, name or place
    [[u:...]] around a word you could not read clearly, containing your best guess
-5. Write a summary of 2 to 4 short lines covering the whole page.
-6. Write one mnemonic that makes this page easy to remember, built as a short story from India. STYLE_LINE The story must be 3 to 6 short sentences, vivid and a little funny, and each character, object or event in it must stand for one key point from the page, in the same order as the notes. Then list how each story element maps to the fact it stands for. Be respectful towards religious and historical figures.
+5. Write a summary of 2 to 3 short lines covering the whole page.
 
 Reply with one JSON object only, no markdown fences and no other text, in exactly this shape:
 {
   "title": "short title for this page",
+  "topic": "the chapter or topic this page belongs to",
   "language": "language(s) the page was written in",
   "sections": [ { "heading": "...", "points": ["...", "..."] } ],
-  "summary": ["...", "..."],
-  "mnemonic": { "title": "...", "story": "...", "links": ["story element = fact it stands for", "..."] }
+  "summary": ["...", "..."]
 }
 
 If the picture has no readable notes (blank, too blurry, or not notes at all), reply instead with:
 { "unreadable": true, "reason": "one short sentence saying what is wrong and how to retake the photo" }"""
 
-    private fun systemPrompt(settings: JSONObject): String {
-        val style = when (settings.optString("mnemonicStyle", "mix")) {
-            "traditional" -> "Base it on a well-known traditional story: Panchatantra, Akbar-Birbal, Tenali Rama, Jataka tales, Vikram-Betal, or an episode from the Ramayana or Mahabharata."
-            "madeup" -> "Make up a new story set in everyday India: a village, a bazaar, a train journey, a cricket match, a chai stall, a wedding, a school."
-            else -> "Use either a well-known traditional story (Panchatantra, Akbar-Birbal, Tenali Rama, Jataka tales, Vikram-Betal, Ramayana or Mahabharata episodes) or a made-up story set in everyday India (village, bazaar, train, cricket match, chai stall), whichever fits the content best."
-        }
-        return SYSTEM_PROMPT.replace("STYLE_LINE", style)
+    private const val TOPIC_PROMPT = """You are given a digest of consecutive pages from a student's notes: for each page its number, title, topic, headings and key points.
+
+Do this:
+1. Group the pages into topics. A topic is a run of consecutive pages about the same chapter or subject. A topic may be a single page. Every page in the digest must belong to exactly one topic, in order, with no gaps and no overlaps.
+2. For each topic write one mnemonic that makes the whole topic easy to remember, built as a short story from India. STYLE_LINE The story must be 4 to 8 short sentences, vivid and a little funny, and each character, object or event in it must stand for one key point of the topic, in the same order as the notes. Then list how each story element maps to the fact it stands for. Use only facts from the digest. Be respectful towards religious and historical figures.
+
+Reply with one JSON object only, no markdown fences and no other text, in exactly this shape:
+{
+  "topics": [
+    {
+      "from": 1,
+      "to": 3,
+      "title": "name of the topic",
+      "mnemonic": { "title": "...", "story": "...", "links": ["story element = fact it stands for", "..."] }
+    }
+  ]
+}
+"from" and "to" are the first and last page numbers of the topic."""
+
+    private fun styleLine(settings: JSONObject): String = when (settings.optString("mnemonicStyle", "mix")) {
+        "traditional" -> "Base it on a well-known traditional story: Panchatantra, Akbar-Birbal, Tenali Rama, Jataka tales, Vikram-Betal, or an episode from the Ramayana or Mahabharata."
+        "madeup" -> "Make up a new story set in everyday India: a village, a bazaar, a train journey, a cricket match, a chai stall, a wedding, a school."
+        else -> "Use either a well-known traditional story (Panchatantra, Akbar-Birbal, Tenali Rama, Jataka tales, Vikram-Betal, Ramayana or Mahabharata episodes) or a made-up story set in everyday India (village, bazaar, train, cricket match, chai stall), whichever fits the content best."
     }
 
-    private fun userText(settings: JSONObject): String {
+    private fun subjectNote(settings: JSONObject): String {
         val subject = settings.optString("subject", "").trim()
-        return if (subject.isEmpty()) "Here is the page. Make the notes."
-        else "Here is the page. The subject is: $subject. Make the notes."
+        return if (subject.isEmpty()) "" else " The subject is: $subject."
     }
 
+    private fun usage(tokensIn: Long, tokensOut: Long): JSONObject =
+        JSONObject().put("in", tokensIn).put("out", tokensOut)
+
+    /** One page picture in, structured notes out. "_usage" carries the tokens billed. */
     fun makeNotes(settings: JSONObject, image: File): JSONObject {
         val b64 = Base64.encodeToString(image.readBytes(), Base64.NO_WRAP)
-        val text = if (settings.optString("provider", "gemini") == "claude") {
-            claude(settings, b64)
-        } else {
-            gemini(settings, b64)
-        }
-        return parseJson(text)
+        val user = "Here is the page.${subjectNote(settings)} Make the notes."
+        val reply = ask(settings, PAGE_PROMPT, user, b64)
+        return parseJson(reply.text).put("_usage", usage(reply.tokensIn, reply.tokensOut))
     }
+
+    /**
+     * digest: [{page, title, topic, headings, points}], page numbers in order.
+     * Returns {topics: [{from, to, title, mnemonic}], _usage}. Long documents are done in
+     * chunks; a topic that crosses a chunk border is split there.
+     */
+    fun makeTopics(settings: JSONObject, digest: JSONArray): JSONObject {
+        val system = TOPIC_PROMPT.replace("STYLE_LINE", styleLine(settings))
+        val all = JSONArray()
+        var tokensIn = 0L
+        var tokensOut = 0L
+        var start = 0
+        while (start < digest.length()) {
+            val chunk = JSONArray()
+            for (i in start until minOf(start + TOPIC_CHUNK, digest.length())) chunk.put(digest.get(i))
+            val user = "Here is the digest.${subjectNote(settings)}\n\n$chunk"
+            val reply = ask(settings, system, user, null)
+            tokensIn += reply.tokensIn
+            tokensOut += reply.tokensOut
+            val topics = parseJson(reply.text).optJSONArray("topics")
+            if (topics != null) for (i in 0 until topics.length()) all.put(topics.get(i))
+            start += TOPIC_CHUNK
+        }
+        return JSONObject().put("topics", all).put("_usage", usage(tokensIn, tokensOut))
+    }
+
+    private fun ask(settings: JSONObject, system: String, user: String, imageB64: String?): Reply =
+        if (settings.optString("provider", "gemini") == "claude") claude(settings, system, user, imageB64)
+        else gemini(settings, system, user, imageB64)
 
     /** One tiny request to check a key and model name. Returns a success line or throws. */
     fun testKey(settings: JSONObject): String {
@@ -113,18 +161,19 @@ If the picture has no readable notes (blank, too blurry, or not notes at all), r
 
     // ---------------------------------------------------------------- Gemini
 
-    private fun gemini(settings: JSONObject, b64: String): String {
+    private fun gemini(settings: JSONObject, system: String, user: String, imageB64: String?): Reply {
         val key = settings.optString("geminiKey", "").trim()
         if (key.isEmpty()) throw AiException("Add your Gemini API key in Settings first.")
         val model = settings.optString("geminiModel", "").trim().ifEmpty { DEFAULT_GEMINI_MODEL }
 
+        val parts = JSONArray()
+        if (imageB64 != null) {
+            parts.put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", imageB64)))
+        }
+        parts.put(JSONObject().put("text", user))
         val body = JSONObject()
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt(settings)))))
-            .put("contents", JSONArray().put(
-                JSONObject().put("role", "user").put("parts", JSONArray()
-                    .put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", b64)))
-                    .put(JSONObject().put("text", userText(settings))))
-            ))
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
+            .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", parts)))
             .put("generationConfig", JSONObject().put("responseMimeType", "application/json"))
 
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
@@ -134,45 +183,50 @@ If the picture has no readable notes (blank, too blurry, or not notes at all), r
         val candidates = json.optJSONArray("candidates")
         if (candidates == null || candidates.length() == 0) {
             val reason = json.optJSONObject("promptFeedback")?.optString("blockReason", "") ?: ""
-            throw AiException("Gemini did not answer for this page" + if (reason.isNotEmpty()) " ($reason)." else ".")
+            throw AiException("Gemini did not answer" + if (reason.isNotEmpty()) " ($reason)." else ".")
         }
         val cand = candidates.getJSONObject(0)
-        val parts = cand.optJSONObject("content")?.optJSONArray("parts")
+        val outParts = cand.optJSONObject("content")?.optJSONArray("parts")
         val sb = StringBuilder()
-        if (parts != null) {
-            for (i in 0 until parts.length()) {
-                val p = parts.getJSONObject(i)
+        if (outParts != null) {
+            for (i in 0 until outParts.length()) {
+                val p = outParts.getJSONObject(i)
                 if (!p.optBoolean("thought", false)) sb.append(p.optString("text", ""))
             }
         }
         if (sb.isBlank()) {
             val finish = cand.optString("finishReason", "")
-            throw AiException("Gemini returned nothing for this page" + if (finish.isNotEmpty()) " ($finish)." else ".")
+            throw AiException("Gemini returned nothing" + if (finish.isNotEmpty()) " ($finish)." else ".")
         }
         if (cand.optString("finishReason", "") == "MAX_TOKENS") {
-            throw AiException("This page has too much on it for one go. Photograph it in two halves.")
+            throw AiException("There is too much here for one go. Photograph the page in two halves.")
         }
-        return sb.toString()
+        // thinking tokens are billed at the output rate
+        val u = json.optJSONObject("usageMetadata")
+        val tokensIn = u?.optLong("promptTokenCount", 0) ?: 0
+        val tokensOut = (u?.optLong("candidatesTokenCount", 0) ?: 0) + (u?.optLong("thoughtsTokenCount", 0) ?: 0)
+        return Reply(sb.toString(), tokensIn, tokensOut)
     }
 
     // ---------------------------------------------------------------- Claude
 
-    private fun claude(settings: JSONObject, b64: String): String {
+    private fun claude(settings: JSONObject, system: String, user: String, imageB64: String?): Reply {
         val key = settings.optString("claudeKey", "").trim()
         if (key.isEmpty()) throw AiException("Add your Claude API key in Settings first.")
         val model = settings.optString("claudeModel", "").trim().ifEmpty { DEFAULT_CLAUDE_MODEL }
 
+        val content = JSONArray()
+        if (imageB64 != null) {
+            content.put(JSONObject().put("type", "image").put("source", JSONObject()
+                .put("type", "base64").put("media_type", "image/jpeg").put("data", imageB64)))
+        }
+        content.put(JSONObject().put("type", "text").put("text", user))
         val body = JSONObject()
             .put("model", model)
             .put("max_tokens", 16000)
-            .put("system", systemPrompt(settings))
+            .put("system", system)
             .put("output_config", JSONObject().put("effort", "medium"))
-            .put("messages", JSONArray().put(
-                JSONObject().put("role", "user").put("content", JSONArray()
-                    .put(JSONObject().put("type", "image").put("source", JSONObject()
-                        .put("type", "base64").put("media_type", "image/jpeg").put("data", b64)))
-                    .put(JSONObject().put("type", "text").put("text", userText(settings))))
-            ))
+            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
 
         val headers = mutableMapOf("x-api-key" to key, "anthropic-version" to "2023-06-01")
         if (model in CLAUDE_FALLBACK_MODELS) {
@@ -184,19 +238,20 @@ If the picture has no readable notes (blank, too blurry, or not notes at all), r
         val res = postWithRetry("https://api.anthropic.com/v1/messages", headers, body.toString(), "Claude")
         val json = JSONObject(res)
         when (json.optString("stop_reason", "")) {
-            "refusal" -> throw AiException("Claude declined to process this page.")
-            "max_tokens" -> throw AiException("This page has too much on it for one go. Photograph it in two halves.")
+            "refusal" -> throw AiException("Claude declined to process this.")
+            "max_tokens" -> throw AiException("There is too much here for one go. Photograph the page in two halves.")
         }
-        val content = json.optJSONArray("content")
+        val blocks = json.optJSONArray("content")
         val sb = StringBuilder()
-        if (content != null) {
-            for (i in 0 until content.length()) {
-                val block = content.getJSONObject(i)
+        if (blocks != null) {
+            for (i in 0 until blocks.length()) {
+                val block = blocks.getJSONObject(i)
                 if (block.optString("type") == "text") sb.append(block.optString("text", ""))
             }
         }
-        if (sb.isBlank()) throw AiException("Claude returned nothing for this page.")
-        return sb.toString()
+        if (sb.isBlank()) throw AiException("Claude returned nothing.")
+        val u = json.optJSONObject("usage")
+        return Reply(sb.toString(), u?.optLong("input_tokens", 0) ?: 0, u?.optLong("output_tokens", 0) ?: 0)
     }
 
     // ---------------------------------------------------------------- shared
@@ -204,11 +259,11 @@ If the picture has no readable notes (blank, too blurry, or not notes at all), r
     private fun parseJson(text: String): JSONObject {
         val start = text.indexOf('{')
         val end = text.lastIndexOf('}')
-        if (start < 0 || end <= start) throw AiException("The AI reply was not in the expected format. Try this page again.")
+        if (start < 0 || end <= start) throw AiException("The AI reply was not in the expected format. Try again.")
         return try {
             JSONObject(text.substring(start, end + 1))
         } catch (e: Exception) {
-            throw AiException("The AI reply was not in the expected format. Try this page again.")
+            throw AiException("The AI reply was not in the expected format. Try again.")
         }
     }
 

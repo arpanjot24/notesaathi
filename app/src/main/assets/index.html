@@ -61,6 +61,7 @@
       <div id="job" class="job hidden">
         <div class="job-line"><span class="spinner" id="job-spin"></span><span id="job-text"></span></div>
         <div class="bar"><div class="bar-fill" id="job-bar"></div></div>
+        <div class="job-cost" id="job-cost"></div>
         <div id="job-errors" class="job-errors"></div>
         <div id="job-actions" class="job-actions hidden">
           <button class="btn btn-primary" id="btn-retry">Continue</button>
@@ -96,6 +97,12 @@
       <span><i class="dot dot-d"></i>definition / rule</span>
       <span><i class="dot dot-n"></i>number / name</span>
       <span><i class="dot dot-u"></i>unsure reading</span>
+    </div>
+    <div id="note-cost" class="note-cost no-print"></div>
+    <div id="topics-bar" class="topics-bar no-print hidden">
+      <span class="spinner" id="topics-spin"></span>
+      <span id="topics-text"></span>
+      <button class="btn btn-small" id="btn-topics">Write stories</button>
     </div>
     <div id="sheets"></div>
   </main>
@@ -149,6 +156,14 @@
       <label class="field">Subject (optional)
         <input type="text" id="subject" placeholder="e.g. Class 10 Biology, UPSC Polity">
       </label>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Cost estimate</h2>
+      <p class="hint small" style="margin-top:0">The app counts the exact tokens each request used and multiplies by these prices. Leave a box empty to use the built-in price shown in grey. Prices change, so check your AI provider's pricing page now and then.</p>
+      <label class="field">Input price (US$ per 1 million tokens) <input type="number" step="any" min="0" id="priceIn" inputmode="decimal"></label>
+      <label class="field">Output price (US$ per 1 million tokens) <input type="number" step="any" min="0" id="priceOut" inputmode="decimal"></label>
+      <label class="field">Rupees per US dollar <input type="number" step="any" min="0" id="usdInr" inputmode="decimal"></label>
     </div>
 
     <button class="btn btn-primary btn-block" id="btn-save-settings">Save</button>

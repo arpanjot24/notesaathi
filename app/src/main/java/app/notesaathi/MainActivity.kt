@@ -304,6 +304,20 @@ class MainActivity : ComponentActivity() {
             pages.clear()
         }
 
+        /** Groups pages into topics with one story each. Answers with "topicsDone": {id, ok, data | error}. */
+        @JavascriptInterface
+        fun makeTopics(id: String, digestJson: String) {
+            io.execute {
+                val out = JSONObject().put("id", id)
+                try {
+                    out.put("ok", true).put("data", Ai.makeTopics(settings(), org.json.JSONArray(digestJson)))
+                } catch (e: Exception) {
+                    out.put("ok", false).put("error", e.message ?: "Could not write the memory stories.")
+                }
+                emit("topicsDone", out)
+            }
+        }
+
         /** Checks the key typed in Settings. Answers with a "keyTest" event: {provider, ok, message}. */
         @JavascriptInterface
         fun testKey(json: String) {
