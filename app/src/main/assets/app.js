@@ -51,7 +51,21 @@ function show(view) {
   });
   window.scrollTo(0, 0);
 }
+/* In-app yes/no box. The browser's own confirm() does not show inside the app. */
+var modalYes = null;
+function ask(message, yesLabel, onYes) {
+  $('#modal-text').textContent = message;
+  $('#modal-yes').textContent = yesLabel;
+  modalYes = onYes;
+  $('#modal').classList.remove('hidden');
+}
+function closeModal() {
+  $('#modal').classList.add('hidden');
+  modalYes = null;
+}
+
 window.onBack = function () {
+  if (!$('#modal').classList.contains('hidden')) { closeModal(); return true; }
   if (currentView === 'home') return false;
   show('home');
   renderNotesList();
@@ -253,12 +267,13 @@ function continueJob() {
 
 function discardJob() {
   if (!job) return;
-  if (!confirm('Cancel this run? The pages already done in it will be thrown away.')) return;
-  job = null;
-  saveJob();
-  awake(false);
-  renderJob();
-  renderPages();
+  ask('Cancel this run? The pages already done in it will be thrown away.', 'Yes, cancel run', function () {
+    job = null;
+    saveJob();
+    awake(false);
+    renderJob();
+    renderPages();
+  });
 }
 
 function finishJob() {
@@ -459,9 +474,8 @@ function init() {
   };
   $('#btn-retry').onclick = continueJob;
   $('#btn-keep').onclick = function () {
-    if (job.pending.length + Object.keys(job.errors).length > 0 &&
-        !confirm('Save only the pages done so far? The remaining pages will be dropped from this run.')) return;
-    finishJob();
+    if (job.pending.length + Object.keys(job.errors).length === 0) { finishJob(); return; }
+    ask('Save only the pages done so far? The remaining pages will be dropped from this run.', 'Yes, save', finishJob);
   };
   $('#btn-discard').onclick = discardJob;
   $('#notes-list').onclick = function (e) {
@@ -491,15 +505,22 @@ function init() {
   };
   $('#btn-delete').onclick = function () {
     if (!currentNote) return;
-    if (!confirm('Delete "' + currentNote.title + '"? This cannot be undone.')) return;
-    notes = notes.filter(function (n) { return n.id !== currentNote.id; });
-    currentNote = null;
-    persistNotes();
-    window.onBack();
+    ask('Delete "' + currentNote.title + '"? This cannot be undone.', 'Yes, delete', function () {
+      notes = notes.filter(function (n) { return n.id !== currentNote.id; });
+      currentNote = null;
+      persistNotes();
+      window.onBack();
+    });
   };
   $('#sheets').addEventListener('input', onMarginInput);
 
   $('#btn-update').onclick = function () { Android.installUpdate(); };
+  $('#modal-no').onclick = closeModal;
+  $('#modal-yes').onclick = function () {
+    var yes = modalYes;
+    closeModal();
+    if (yes) yes();
+  };
 
   $('#version').textContent = 'NoteSaathi ' + Android.version();
   restoreJob();

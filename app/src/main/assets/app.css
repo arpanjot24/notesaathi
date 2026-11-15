@@ -152,6 +152,12 @@ button { font: inherit; color: inherit; }
 .test-result.ok { color: var(--num); font-weight: 600; }
 .test-result.bad { color: var(--key); }
 
+.modal { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 30; background: rgba(20,26,45,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal-box { background: var(--card); border-radius: 16px; padding: 20px; width: 100%; max-width: 360px; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+.modal-text { font-size: 16px; line-height: 1.45; }
+.modal-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
+.modal-actions .btn { margin-left: 10px; }
+
 .toast {
   position: fixed; left: 16px; right: 16px; bottom: 24px; z-index: 20;
   background: #1f2a44; color: #fff; border-radius: 12px; padding: 12px 16px;
@@ -230,7 +236,7 @@ button { font: inherit; color: inherit; }
 @page { size: A4; margin: 11mm; }
 @media print {
   html, body { background: #fff; }
-  .no-print, .toast, #view-home, #view-settings { display: none !important; }
+  .no-print, .toast, .modal, #view-home, #view-settings { display: none !important; }
   .content { padding: 0; max-width: none; }
   .sheet {
     font-size: 13pt; box-shadow: none; border-radius: 0; margin: 0;
