@@ -26,11 +26,12 @@ function list(v) {
   return [v];
 }
 
-var AI_PROVIDERS = ['gemini', 'claude', 'deepseek'];
+var AI_PROVIDERS = ['gemini', 'claude', 'deepseek', 'openrouter'];
 
 /* ───────── cost ───────── */
 /* Built-in prices in US$ per million tokens [input, output]; editable in Settings. */
 function defaultPrices(st) {
+  if (st.provider === 'openrouter') return [0.25, 1.5];
   if (st.provider === 'deepseek') return (st.deepseekModel || '').indexOf('chat') >= 0 ? [0.28, 0.42] : [0.3, 1.2];
   if (st.provider === 'claude') {
     var m = st.claudeModel || st.defaultClaudeModel || '';
@@ -60,6 +61,8 @@ function spentText(spent) {
 function rupeesFor(usage) {
   var st = readSettings();
   if (!usage || AI_PROVIDERS.indexOf(st.provider) < 0) return 0;
+  var rateNow = Number(st.usdInr) > 0 ? Number(st.usdInr) : DEFAULT_USD_INR;
+  if (usage.usd > 0) return usage.usd * rateNow; // the service reported the real charge
   var d = defaultPrices(st);
   var pin = Number(st.priceIn) > 0 ? Number(st.priceIn) : d[0];
   var pout = Number(st.priceOut) > 0 ? Number(st.priceOut) : d[1];
@@ -72,6 +75,7 @@ function addUsage(total, u) {
   if (!u) return;
   total.in = (total.in || 0) + (u.in || 0);
   total.out = (total.out || 0) + (u.out || 0);
+  if (u.usd >= 0) total.usd = (total.usd || 0) + u.usd;
 }
 function isAi() {
   return AI_PROVIDERS.indexOf(readSettings().provider) >= 0;
@@ -199,6 +203,7 @@ function hasKey() {
   if (s.provider === 'claude') return !!s.claudeKey;
   if (s.provider === 'gemini') return !!s.geminiKey;
   if (s.provider === 'deepseek') return !!s.deepseekKey;
+  if (s.provider === 'openrouter') return !!s.openrouterKey;
   return true; // on-device mode needs no key
 }
 
@@ -557,7 +562,8 @@ function renderNoteCost() {
   var n = currentNote;
   var u = n && n.usage;
   if (!n || !n.rupees || !u) { $('#note-cost').textContent = ''; return; }
-  $('#note-cost').textContent = 'API cost for this document: about ' + money(n.rupees) +
+  $('#note-cost').textContent = 'API cost for this document: ' +
+    (u.usd > 0 ? 'charged $' + u.usd.toFixed(4) + ', which is ' : 'about ') + money(n.rupees) +
     ' (' + money(n.rupees / n.pages.length) + ' per page) · ' + tokens(u.in) + ' tokens in, ' + tokens(u.out) + ' out' +
     (n.spent ? ' · DeepSeek balance actually went down by ' + spentText(n.spent) : '');
 }
@@ -645,7 +651,7 @@ function onMarginInput(e) {
 }
 
 /* ───────── settings ───────── */
-var SETTING_IDS = ['geminiKey', 'geminiModel', 'claudeKey', 'claudeModel', 'deepseekKey', 'deepseekModel', 'mnemonicStyle', 'subject', 'priceIn', 'priceOut', 'usdInr', 'usdCny'];
+var SETTING_IDS = ['geminiKey', 'geminiModel', 'claudeKey', 'claudeModel', 'deepseekKey', 'deepseekModel', 'openrouterKey', 'openrouterModel', 'mnemonicStyle', 'subject', 'priceIn', 'priceOut', 'usdInr', 'usdCny'];
 
 function readSettings() {
   try { return JSON.parse(Android.getSettings() || '{}') || {}; } catch (e) { return {}; }
@@ -661,6 +667,8 @@ function openSettings() {
   $('#claudeModel').value = s.claudeModel || s.defaultClaudeModel || '';
   $('#deepseekKey').value = s.deepseekKey || '';
   $('#deepseekModel').value = s.deepseekModel || s.defaultDeepseekModel || '';
+  $('#openrouterKey').value = s.openrouterKey || '';
+  $('#openrouterModel').value = s.openrouterModel || s.defaultOpenrouterModel || '';
   $('#mnemonicStyle').value = s.mnemonicStyle || 'mix';
   $('#subject').value = s.subject || '';
   SWITCHES.forEach(function (sw) {
@@ -675,6 +683,7 @@ function openSettings() {
   $('#test-gemini').textContent = '';
   $('#test-claude').textContent = '';
   $('#test-deepseek').textContent = '';
+  $('#test-openrouter').textContent = '';
   show('settings');
 }
 
@@ -823,6 +832,12 @@ function init() {
   $('#sheets').addEventListener('input', onMarginInput);
 
   $('#btn-update').onclick = function () { Android.installUpdate(); };
+  $('#or-chips').onclick = function (e) {
+    var chip = e.target.closest ? e.target.closest('.chip') : null;
+    if (!chip) return;
+    $('#openrouterModel').value = chip.getAttribute('data-model');
+    $('#openrouterModel').dispatchEvent(new Event('change'));
+  };
   $('#btn-prices').onclick = function () {
     var st = formSettings();
     if (AI_PROVIDERS.indexOf(st.provider) < 0) { toast('Choose Gemini, Claude or DeepSeek first. The no-key mode has no cost.'); return; }
@@ -838,7 +853,7 @@ function init() {
     startTopics(currentNote);
   };
   // a different AI or model has a different price: drop the typed prices so the built-in one applies
-  document.querySelectorAll('input[name=provider], #geminiModel, #claudeModel, #deepseekModel').forEach(function (el) {
+  document.querySelectorAll('input[name=provider], #geminiModel, #claudeModel, #deepseekModel, #openrouterModel').forEach(function (el) {
     el.addEventListener('change', function () {
       $('#priceIn').value = '';
       $('#priceOut').value = '';

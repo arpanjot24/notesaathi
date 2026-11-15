@@ -207,6 +207,7 @@ class MainActivity : ComponentActivity() {
             .put("defaultGeminiModel", Ai.DEFAULT_GEMINI_MODEL)
             .put("defaultClaudeModel", Ai.DEFAULT_CLAUDE_MODEL)
             .put("defaultDeepseekModel", Ai.DEFAULT_DEEPSEEK_MODEL)
+            .put("defaultOpenrouterModel", Ai.DEFAULT_OPENROUTER_MODEL)
             .toString()
 
         @JavascriptInterface
@@ -216,6 +217,7 @@ class MainActivity : ComponentActivity() {
                 clean.remove("defaultGeminiModel")
                 clean.remove("defaultClaudeModel")
                 clean.remove("defaultDeepseekModel")
+                clean.remove("defaultOpenrouterModel")
                 prefs.edit().putString(KEY_SETTINGS, clean.toString()).apply()
             } catch (e: Exception) {
                 emitError("Could not save settings.")

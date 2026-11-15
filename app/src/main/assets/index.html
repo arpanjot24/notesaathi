@@ -132,6 +132,7 @@
       <label class="radio"><input type="radio" name="provider" value="gemini"> <span><b>Google Gemini</b><small>Needs a key (free tier available). Reads handwriting in any language, writes story mnemonics.</small></span></label>
       <label class="radio"><input type="radio" name="provider" value="claude"> <span><b>Anthropic Claude</b><small>Needs a paid key. Same features; often better with messy handwriting.</small></span></label>
       <label class="radio"><input type="radio" name="provider" value="deepseek"> <span><b>DeepSeek</b><small>Needs a paid key; usually the cheapest. If DeepSeek will not take the picture, the phone reads the text first, which only suits printed or very neat writing.</small></span></label>
+      <label class="radio"><input type="radio" name="provider" value="openrouter"> <span><b>OpenRouter</b><small>One key for many AI models, including free ones. Shows the real amount charged for every document.</small></span></label>
     </div>
 
     <div class="card">
@@ -162,6 +163,22 @@
       <div class="test-row"><button class="btn btn-small" data-test="deepseek">Test key</button><span class="test-result" id="test-deepseek"></span></div>
       <p class="hint small">Get a key at <a href="https://platform.deepseek.com/api_keys">platform.deepseek.com</a></p>
       <label class="field">Model <input type="text" id="deepseekModel" autocapitalize="off" spellcheck="false"></label>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">OpenRouter</h2>
+      <label class="field">API key
+        <div class="key-row"><input type="password" id="openrouterKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your OpenRouter key"><button class="link-btn" data-show="openrouterKey">Show</button></div>
+      </label>
+      <div class="test-row"><button class="btn btn-small" data-test="openrouter">Test key</button><span class="test-result" id="test-openrouter"></span></div>
+      <label class="field">Model <input type="text" id="openrouterModel" autocapitalize="off" spellcheck="false"></label>
+      <p class="hint small">Use any model from <a href="https://openrouter.ai/models?input_modalities=image">openrouter.ai/models</a> that accepts pictures. Tap a suggestion to use it:</p>
+      <div class="chips" id="or-chips">
+        <button class="chip" data-model="google/gemini-3.1-flash-lite">Low cost · gemini-3.1-flash-lite</button>
+        <button class="chip" data-model="google/gemini-3.8-flash">Best reading · gemini-3.8-flash</button>
+        <button class="chip" data-model="deepseek/deepseek-v4.1-flash">Cheapest · deepseek-v4.1-flash</button>
+        <button class="chip" data-model="google/gemma-4-31b-it:free">Free · gemma-4-31b-it</button>
+      </div>
     </div>
 
     <div class="card">

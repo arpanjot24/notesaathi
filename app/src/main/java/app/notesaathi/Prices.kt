@@ -43,6 +43,26 @@ object Prices {
         } catch (e: Exception) {
             // leave the rate out
         }
+        if (provider == "openrouter") {
+            // OpenRouter publishes its own prices, per token, for every model it offers
+            try {
+                val models = JSONObject(get("https://openrouter.ai/api/v1/models")).getJSONArray("data")
+                for (i in 0 until models.length()) {
+                    val m = models.getJSONObject(i)
+                    if (m.optString("id") != model) continue
+                    val pricing = m.optJSONObject("pricing") ?: break
+                    val pin = pricing.optString("prompt").toDoubleOrNull()
+                    val pout = pricing.optString("completion").toDoubleOrNull()
+                    if (pin != null && pout != null && pin >= 0 && pout >= 0) {
+                        out.put("in", pin * 1_000_000).put("out", pout * 1_000_000)
+                    }
+                    break
+                }
+            } catch (e: Exception) {
+                // leave the prices out
+            }
+            return out
+        }
         try {
             val text = get(PRICE_LIST)
             val names = when (provider) {

@@ -15,6 +15,7 @@ object Ai {
     const val DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
     const val DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
     const val DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
+    const val DEFAULT_OPENROUTER_MODEL = "google/gemini-3.1-flash-lite"
 
     // Learned while running: which DeepSeek model name answered, and whether it refused pictures.
     @Volatile private var deepseekWorkingModel: String? = null
@@ -22,7 +23,7 @@ object Ai {
     private const val TOPIC_CHUNK = 30
 
     /** The model's text plus the tokens the service says it billed for it. */
-    private class Reply(val text: String, val tokensIn: Long, val tokensOut: Long)
+    private class Reply(val text: String, val tokensIn: Long, val tokensOut: Long, val usd: Double = -1.0)
 
     // Claude models that accept the server-side refusal fallback.
     private val CLAUDE_FALLBACK_MODELS = setOf(
@@ -87,8 +88,12 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         return if (subject.isEmpty()) "" else " The subject is: $subject."
     }
 
-    private fun usage(tokensIn: Long, tokensOut: Long): JSONObject =
-        JSONObject().put("in", tokensIn).put("out", tokensOut)
+    /** usd is the real charge when the service reports one (OpenRouter does); -1 means unknown. */
+    private fun usage(tokensIn: Long, tokensOut: Long, usd: Double = -1.0): JSONObject {
+        val u = JSONObject().put("in", tokensIn).put("out", tokensOut)
+        if (usd >= 0) u.put("usd", usd)
+        return u
+    }
 
     /** Cost saver: a smaller picture means fewer input tokens. */
     private fun shrink(image: File): ByteArray {
@@ -127,7 +132,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
             deepseekNoPictures = true
             return notesFromPhoneReading(settings, system, image)
         }
-        return parseJson(reply.text).put("_usage", usage(reply.tokensIn, reply.tokensOut))
+        return parseJson(reply.text).put("_usage", usage(reply.tokensIn, reply.tokensOut, reply.usd))
     }
 
     private fun notesFromPhoneReading(settings: JSONObject, system: String, image: File): JSONObject {
@@ -141,7 +146,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         val user = "The page was read by OCR on a phone, so the text may contain mistakes; fix obvious OCR errors from context." +
             "${subjectNote(settings)} Make the notes from this text:\n\n$text"
         val reply = ask(settings, system, user, null)
-        return parseJson(reply.text).put("_usage", usage(reply.tokensIn, reply.tokensOut)).put("ocr", true)
+        return parseJson(reply.text).put("_usage", usage(reply.tokensIn, reply.tokensOut, reply.usd)).put("ocr", true)
     }
 
     /**
@@ -154,6 +159,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         val all = JSONArray()
         var tokensIn = 0L
         var tokensOut = 0L
+        var usd = -1.0
         var start = 0
         while (start < digest.length()) {
             val chunk = JSONArray()
@@ -162,22 +168,29 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
             val reply = ask(settings, system, user, null)
             tokensIn += reply.tokensIn
             tokensOut += reply.tokensOut
+            if (reply.usd >= 0) usd = maxOf(usd, 0.0) + reply.usd
             val topics = parseJson(reply.text).optJSONArray("topics")
             if (topics != null) for (i in 0 until topics.length()) all.put(topics.get(i))
             start += TOPIC_CHUNK
         }
-        return JSONObject().put("topics", all).put("_usage", usage(tokensIn, tokensOut))
+        return JSONObject().put("topics", all).put("_usage", usage(tokensIn, tokensOut, usd))
     }
 
     private fun ask(settings: JSONObject, system: String, user: String, imageB64: String?): Reply =
         when (settings.optString("provider", "gemini")) {
             "claude" -> claude(settings, system, user, imageB64)
             "deepseek" -> deepseek(settings, system, user, imageB64)
+            "openrouter" -> openrouter(settings, system, user, imageB64)
             else -> gemini(settings, system, user, imageB64)
         }
 
     /** One tiny request to check a key and model name. Returns a success line or throws. */
     fun testKey(settings: JSONObject): String {
+        if (settings.optString("provider") == "openrouter") {
+            val model = settings.optString("openrouterModel", "").trim().ifEmpty { DEFAULT_OPENROUTER_MODEL }
+            openrouter(settings, "Reply with a JSON object.", "Reply with {\"ok\": true}", null)
+            return "OpenRouter key works (model $model)."
+        }
         if (settings.optString("provider") == "deepseek") {
             deepseekWorkingModel = null
             deepseek(settings, "Reply with a JSON object.", "Reply with {\"ok\": true}", null)
@@ -387,6 +400,60 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         if (text.isBlank()) throw AiException("DeepSeek returned nothing.")
         val u = json.optJSONObject("usage")
         return Reply(text, u?.optLong("prompt_tokens", 0) ?: 0, u?.optLong("completion_tokens", 0) ?: 0)
+    }
+
+    // ---------------------------------------------------------------- OpenRouter
+
+    /** OpenRouter passes the request to whichever model is named, and reports the real charge. */
+    private fun openrouter(settings: JSONObject, system: String, user: String, imageB64: String?): Reply {
+        val key = settings.optString("openrouterKey", "").trim()
+        if (key.isEmpty()) throw AiException("Add your OpenRouter API key in Settings first.")
+        val model = settings.optString("openrouterModel", "").trim().ifEmpty { DEFAULT_OPENROUTER_MODEL }
+
+        val userContent: Any = if (imageB64 != null) {
+            JSONArray()
+                .put(JSONObject().put("type", "text").put("text", user))
+                .put(JSONObject().put("type", "image_url")
+                    .put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$imageB64")))
+        } else user
+        val body = JSONObject()
+            .put("model", model)
+            .put("stream", false)
+            .put("response_format", JSONObject().put("type", "json_object"))
+            .put("usage", JSONObject().put("include", true))
+            .put("messages", JSONArray()
+                .put(JSONObject().put("role", "system").put("content", system))
+                .put(JSONObject().put("role", "user").put("content", userContent)))
+        if (settings.optString("lowThinking") == "on") {
+            body.put("reasoning", JSONObject().put("effort", "low"))
+        }
+
+        val res = postWithRetry(
+            "https://openrouter.ai/api/v1/chat/completions",
+            mapOf("Authorization" to "Bearer $key", "X-Title" to "NoteSaathi"),
+            body.toString(),
+            "OpenRouter"
+        )
+        val json = JSONObject(res)
+        // OpenRouter can return an error inside a 200 reply
+        json.optJSONObject("error")?.let {
+            throw AiException("OpenRouter: " + it.optString("message", "the model could not answer").take(220))
+        }
+        val choice = json.optJSONArray("choices")?.optJSONObject(0)
+            ?: throw AiException("OpenRouter did not answer.")
+        if (choice.optString("finish_reason") == "length") {
+            throw AiException("There is too much here for one go. Photograph the page in two halves.")
+        }
+        val text = choice.optJSONObject("message")?.optString("content", "") ?: ""
+        if (text.isBlank()) throw AiException("OpenRouter returned nothing. The chosen model may not accept pictures.")
+        val u = json.optJSONObject("usage")
+        val cost = u?.optDouble("cost", Double.NaN) ?: Double.NaN
+        return Reply(
+            text,
+            u?.optLong("prompt_tokens", 0) ?: 0,
+            u?.optLong("completion_tokens", 0) ?: 0,
+            if (cost.isNaN()) -1.0 else cost
+        )
     }
 
     // ---------------------------------------------------------------- shared

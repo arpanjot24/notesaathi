@@ -153,6 +153,9 @@ button { font: inherit; color: inherit; }
 .key-row input { flex: 1; min-width: 0; }
 .key-row .link-btn { margin: 6px 0 0 8px; flex: none; }
 
+.chips { display: flex; flex-wrap: wrap; margin-top: 4px; }
+.chip { border: 1px solid #d9cdb2; background: #fff; border-radius: 16px; padding: 7px 12px; margin: 6px 6px 0 0; font-size: 13px; }
+.chip:active { background: #fff3df; border-color: var(--saffron); }
 .test-row { display: flex; align-items: center; margin-top: 10px; }
 .test-result { margin-left: 10px; font-size: 13px; line-height: 1.35; color: var(--muted); }
 .test-result.ok { color: var(--num); font-weight: 600; }
@@ -257,7 +260,8 @@ button { font: inherit; color: inherit; }
     border-bottom: 0.3mm solid #d9d2c0;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  .sheet-main { padding: 2.5mm 4mm 3mm 0; }
+  /* 13 mm of blank paper on the left edge for punching or binding */
+  .sheet-main { padding: 2.5mm 4mm 3mm 13mm; }
   .sheet-page { font-size: 8.5pt; }
   .sheet-title { font-size: 15pt; margin: 0 0 3pt; padding-bottom: 2pt; border-bottom-width: 2px; }
   .sheet h3 { font-size: 12.5pt; margin: 5pt 0 1pt; page-break-after: avoid; break-after: avoid; }
