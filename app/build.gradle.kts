@@ -51,6 +51,15 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    // One APK per processor type keeps the download small (x86_64 is only for the CI emulator).
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
+    }
     lint {
         checkReleaseBuilds = false
         abortOnError = false

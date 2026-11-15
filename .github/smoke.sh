@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installs the freshly built APK on the CI emulator, opens it, and fails if it crashes.
 set -e
-adb install -r NoteSaathi.apk
+adb install -r NoteSaathi-emulator.apk
 adb logcat -c
 adb shell am start -W -n app.notesaathi/.MainActivity
 sleep 15

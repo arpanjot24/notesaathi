@@ -5,7 +5,7 @@ handwriting font: pointers, coloured key terms, a summary and a story mnemonic f
 a ruled margin on the right of every page for your own notes.
 
 **Install:** on your Android phone, open the [latest release](../../releases/latest) and download
-`NoteSaathi.apk`. The app checks this page for new versions and offers to update itself.
+`NoteSaathi.apk` (or `NoteSaathi-32bit.apk` on a very old phone). The app checks this page for new versions and offers to update itself.
 
 Three ways to read a page, chosen in Settings:
 

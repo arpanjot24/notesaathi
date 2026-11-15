@@ -28,12 +28,15 @@ object Updater {
 
             val tag = json.optString("tag_name", "")
             val latest = tag.substringAfterLast('.').toIntOrNull() ?: return out
+            // 64-bit phones (nearly all) take NoteSaathi.apk; old 32-bit phones take the other one
+            val is64 = android.os.Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
+            val wanted = if (is64) "NoteSaathi.apk" else "NoteSaathi-32bit.apk"
             var apkUrl = ""
             val assets = json.optJSONArray("assets")
             if (assets != null) {
                 for (i in 0 until assets.length()) {
                     val a = assets.getJSONObject(i)
-                    if (a.optString("name").endsWith(".apk")) apkUrl = a.optString("browser_download_url")
+                    if (a.optString("name") == wanted) apkUrl = a.optString("browser_download_url")
                 }
             }
             if (latest > BuildConfig.VERSION_CODE && apkUrl.startsWith("https://")) {
