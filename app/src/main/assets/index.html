@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NoteSaathi</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ───────────── Home ───────────── -->
+<section id="view-home" class="view">
+  <header class="appbar">
+    <div class="brand">
+      <span class="brand-mark">न</span>
+      <div>
+        <div class="brand-name">NoteSaathi</div>
+        <div class="brand-sub">Your notes, made easy to remember</div>
+      </div>
+    </div>
+    <button class="icon-btn" id="btn-settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.300 7.300 0 0 0-1.700-1l-.4-2.600a.5.5 0 0 0-.5-.4h-4a.5.5 0 0 0-.5.4l-.4 2.600a7.300 7.300 0 0 0-1.700 1l-2.500-1a.5.5 0 0 0-.6.2l-2 3.400a.5.5 0 0 0 .1.7L4.600 11a7.600 7.600 0 0 0 0 2l-2.100 1.600a.5.5 0 0 0-.1.7l2 3.400a.5.5 0 0 0 .6.2l2.500-1a7.300 7.300 0 0 0 1.700 1l.4 2.600a.5.5 0 0 0 .5.4h4a.5.5 0 0 0 .5-.4l.4-2.600a7.300 7.300 0 0 0 1.700-1l2.500 1a.5.5 0 0 0 .6-.2l2-3.400a.5.5 0 0 0-.1-.7L19.400 13zM12 15.500a3.500 3.500 0 1 1 0-7 3.500 3.500 0 0 1 0 7z"/></svg>
+    </button>
+  </header>
+
+  <main class="content">
+    <div id="update-banner" class="banner hidden">
+      <div>
+        <div class="banner-title">New version <span id="update-version"></span> is ready</div>
+        <div class="banner-text" id="update-notes"></div>
+      </div>
+      <button class="btn btn-small" id="btn-update">Update</button>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Add your pages</h2>
+      <div class="pick-row">
+        <button class="pick" id="btn-camera"><span class="pick-ico">📷</span>Camera</button>
+        <button class="pick" id="btn-gallery"><span class="pick-ico">🖼️</span>Gallery</button>
+        <button class="pick" id="btn-pdf"><span class="pick-ico">📄</span>PDF</button>
+      </div>
+
+      <div id="busy" class="busy hidden"><span class="spinner"></span><span id="busy-text">Working…</span></div>
+
+      <div id="pages-box" class="hidden">
+        <div class="pages-head">
+          <span id="pages-count"></span>
+          <button class="link-btn" id="btn-clear">Remove all</button>
+        </div>
+        <div id="thumbs" class="thumbs"></div>
+        <button class="btn btn-primary btn-block" id="btn-make">Make my notes</button>
+      </div>
+
+      <div id="job" class="job hidden">
+        <div class="job-line"><span class="spinner" id="job-spin"></span><span id="job-text"></span></div>
+        <div class="bar"><div class="bar-fill" id="job-bar"></div></div>
+        <div id="job-errors" class="job-errors"></div>
+        <div id="job-actions" class="job-actions hidden">
+          <button class="btn btn-primary" id="btn-retry">Try failed pages again</button>
+          <button class="btn" id="btn-keep">Save the pages that worked</button>
+        </div>
+      </div>
+
+      <p id="empty-hint" class="hint">Take a photo of your notes or pick a PDF. Any language is fine; you get neat English pointers, a summary and a story to remember them by.</p>
+    </div>
+
+    <h2 class="section-title">Saved notes</h2>
+    <div id="notes-list"></div>
+    <div class="version" id="version"></div>
+  </main>
+</section>
+
+<!-- ───────────── Note viewer ───────────── -->
+<section id="view-note" class="view hidden">
+  <header class="appbar no-print">
+    <button class="icon-btn" id="btn-back" aria-label="Back">
+      <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M20 11H7.800l5.600-5.600L12 4l-8 8 8 8 1.400-1.400L7.800 13H20z"/></svg>
+    </button>
+    <div class="appbar-title" id="note-title"></div>
+    <button class="btn btn-small btn-light" id="btn-print">Save PDF</button>
+    <button class="icon-btn" id="btn-delete" aria-label="Delete">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.500l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+    </button>
+  </header>
+  <main class="content note-content">
+    <div class="legend no-print">
+      <span><i class="dot dot-k"></i>key idea</span>
+      <span><i class="dot dot-d"></i>definition / rule</span>
+      <span><i class="dot dot-n"></i>number / name</span>
+      <span><i class="dot dot-u"></i>unsure reading</span>
+    </div>
+    <div id="sheets"></div>
+  </main>
+</section>
+
+<!-- ───────────── Settings ───────────── -->
+<section id="view-settings" class="view hidden">
+  <header class="appbar">
+    <button class="icon-btn" id="btn-settings-back" aria-label="Back">
+      <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M20 11H7.800l5.600-5.600L12 4l-8 8 8 8 1.400-1.400L7.800 13H20z"/></svg>
+    </button>
+    <div class="appbar-title">Settings</div>
+  </header>
+  <main class="content">
+    <div class="card">
+      <h2 class="card-title">Which AI reads your notes</h2>
+      <label class="radio"><input type="radio" name="provider" value="offline"> <span><b>On this phone, no key</b><small>Free and private. Reads printed or very neat English and Hindi, makes pointers, a summary and a simple memory trick. Not good with messy handwriting; no story mnemonics.</small></span></label>
+      <label class="radio"><input type="radio" name="provider" value="gemini"> <span><b>Google Gemini</b><small>Needs a key (free tier available). Reads handwriting in any language, writes story mnemonics.</small></span></label>
+      <label class="radio"><input type="radio" name="provider" value="claude"> <span><b>Anthropic Claude</b><small>Needs a paid key. Same features; often better with messy handwriting.</small></span></label>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Gemini</h2>
+      <label class="field">API key
+        <div class="key-row"><input type="password" id="geminiKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Gemini key"><button class="link-btn" data-show="geminiKey">Show</button></div>
+      </label>
+      <p class="hint small">Get a key at <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a></p>
+      <label class="field">Model <input type="text" id="geminiModel" autocapitalize="off" spellcheck="false"></label>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Claude</h2>
+      <label class="field">API key
+        <div class="key-row"><input type="password" id="claudeKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Claude key"><button class="link-btn" data-show="claudeKey">Show</button></div>
+      </label>
+      <p class="hint small">Get a key at <a href="https://console.anthropic.com/settings/keys">console.anthropic.com</a></p>
+      <label class="field">Model <input type="text" id="claudeModel" autocapitalize="off" spellcheck="false"></label>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">Your notes</h2>
+      <label class="field">Memory stories
+        <select id="mnemonicStyle">
+          <option value="mix">Mix of traditional and made-up</option>
+          <option value="traditional">Traditional (Panchatantra, Akbar-Birbal, epics…)</option>
+          <option value="madeup">Made-up stories set in India</option>
+        </select>
+      </label>
+      <label class="field">Subject (optional)
+        <input type="text" id="subject" placeholder="e.g. Class 10 Biology, UPSC Polity">
+      </label>
+    </div>
+
+    <button class="btn btn-primary btn-block" id="btn-save-settings">Save</button>
+    <p class="hint small">Keys are stored only on this phone and are sent only to the AI service you chose.</p>
+  </main>
+</section>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="mock.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

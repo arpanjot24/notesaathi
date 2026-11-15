@@ -1,0 +1,308 @@
+package app.notesaathi
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
+import android.net.Uri
+import android.os.Bundle
+import android.print.PrintAttributes
+import android.print.PrintManager
+import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import androidx.webkit.WebViewAssetLoader
+import org.json.JSONObject
+import java.io.File
+import java.util.concurrent.Executors
+
+/**
+ * The screen is a WebView showing the bundled pages in assets/. Everything that needs the phone
+ * (camera, files, PDF pages, network calls, printing, updates) happens here and is exposed to the
+ * page as the `Android` object.
+ */
+class MainActivity : ComponentActivity() {
+
+    private lateinit var web: WebView
+    private lateinit var pages: Pages
+    private lateinit var prefs: SharedPreferences
+    private val io = Executors.newFixedThreadPool(3)
+    @Volatile private var updateUrl: String = ""
+
+    private val cameraLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val path = prefs.getString(KEY_PENDING_PHOTO, null)
+        prefs.edit().remove(KEY_PENDING_PHOTO).apply()
+        if (path != null) {
+            val f = File(path)
+            if (ok && f.length() > 0) {
+                importing("Adding photo…") {
+                    pages.addImageBytes(f.readBytes())
+                    f.delete()
+                    null
+                }
+            } else {
+                f.delete()
+            }
+        }
+    }
+
+    private val galleryLauncher = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) {
+            importing("Adding pictures…") {
+                uris.forEach { pages.addImageUri(it) }
+                null
+            }
+        }
+    }
+
+    private val pdfLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            importing("Opening PDF…") {
+                val total = pages.addPdf(uri)
+                if (total > Pages.MAX_PDF_PAGES) {
+                    "This PDF has $total pages. Only the first ${Pages.MAX_PDF_PAGES} were added; split the PDF to do the rest."
+                } else null
+            }
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        prefs = getSharedPreferences("notesaathi", Context.MODE_PRIVATE)
+        pages = Pages(this)
+
+        val loader = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+
+        web = WebView(this)
+        web.settings.javaScriptEnabled = true
+        web.settings.domStorageEnabled = true
+        web.settings.allowFileAccess = false
+        web.settings.allowContentAccess = false
+        web.settings.textZoom = 100
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                return loader.shouldInterceptRequest(request.url)
+            }
+
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                if (request.url.host == APP_HOST) return false
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                } catch (e: Exception) {
+                    // no browser installed
+                }
+                return true
+            }
+        }
+        web.addJavascriptInterface(Bridge(), "Android")
+        setContentView(web)
+        web.loadUrl("https://$APP_HOST/assets/index.html")
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                web.evaluateJavascript("(window.onBack && window.onBack()) ? 1 : 0") { handled ->
+                    if (handled != "1") finish()
+                }
+            }
+        })
+    }
+
+    override fun onDestroy() {
+        io.shutdown()
+        super.onDestroy()
+    }
+
+    private fun emit(event: String, data: JSONObject) {
+        val js = "window.onNative && window.onNative(${JSONObject.quote(event)}, $data)"
+        runOnUiThread { web.evaluateJavascript(js, null) }
+    }
+
+    private fun emitError(message: String) = emit("error", JSONObject().put("message", message))
+
+    /** Runs an import in the background; the block may return a note to show the user. */
+    private fun importing(label: String, block: () -> String?) {
+        emit("busy", JSONObject().put("on", true).put("text", label))
+        io.execute {
+            var note: String? = null
+            try {
+                note = block()
+            } catch (e: OutOfMemoryError) {
+                note = "That file is too large for this phone's memory."
+            } catch (e: Exception) {
+                note = e.message ?: "Could not add that file."
+            }
+            emit("busy", JSONObject().put("on", false))
+            val data = JSONObject().put("count", pages.count())
+            if (note != null) data.put("message", note)
+            emit("pages", data)
+        }
+    }
+
+    private fun settings(): JSONObject = try {
+        JSONObject(prefs.getString(KEY_SETTINGS, "{}") ?: "{}")
+    } catch (e: Exception) {
+        JSONObject()
+    }
+
+    inner class Bridge {
+
+        @JavascriptInterface
+        fun version(): String = BuildConfig.VERSION_NAME
+
+        @JavascriptInterface
+        fun getSettings(): String = settings()
+            .put("defaultGeminiModel", Ai.DEFAULT_GEMINI_MODEL)
+            .put("defaultClaudeModel", Ai.DEFAULT_CLAUDE_MODEL)
+            .toString()
+
+        @JavascriptInterface
+        fun saveSettings(json: String) {
+            try {
+                val clean = JSONObject(json)
+                clean.remove("defaultGeminiModel")
+                clean.remove("defaultClaudeModel")
+                prefs.edit().putString(KEY_SETTINGS, clean.toString()).apply()
+            } catch (e: Exception) {
+                emitError("Could not save settings.")
+            }
+        }
+
+        @JavascriptInterface
+        fun takePhoto() = runOnUiThread {
+            try {
+                val dir = File(cacheDir, "camera").apply { mkdirs() }
+                val f = File(dir, "shot_${System.currentTimeMillis()}.jpg")
+                prefs.edit().putString(KEY_PENDING_PHOTO, f.absolutePath).apply()
+                cameraLauncher.launch(FileProvider.getUriForFile(this@MainActivity, "$packageName.files", f))
+            } catch (e: Exception) {
+                emitError("Could not open the camera on this phone. Use Gallery instead.")
+            }
+        }
+
+        @JavascriptInterface
+        fun pickImages() = runOnUiThread {
+            try {
+                galleryLauncher.launch("image/*")
+            } catch (e: Exception) {
+                emitError("Could not open the gallery.")
+            }
+        }
+
+        @JavascriptInterface
+        fun pickPdf() = runOnUiThread {
+            try {
+                pdfLauncher.launch(arrayOf("application/pdf"))
+            } catch (e: Exception) {
+                emitError("Could not open the file picker.")
+            }
+        }
+
+        @JavascriptInterface
+        fun pageCount(): Int = pages.count()
+
+        @JavascriptInterface
+        fun thumb(index: Int): String = try {
+            pages.thumb(index)
+        } catch (e: Throwable) {
+            ""
+        }
+
+        @JavascriptInterface
+        fun removePage(index: Int) {
+            pages.remove(index)
+        }
+
+        @JavascriptInterface
+        fun clearPages() {
+            pages.clear()
+        }
+
+        /** Answers later with a "pageDone" event: {index, ok, data | error}. */
+        @JavascriptInterface
+        fun transcribe(index: Int) {
+            io.execute {
+                val out = JSONObject().put("index", index)
+                try {
+                    val s = settings()
+                    val notes = if (s.optString("provider", "offline") == "offline") {
+                        Offline.makeNotes(pages.file(index))
+                    } else {
+                        Ai.makeNotes(s, pages.file(index))
+                    }
+                    out.put("ok", true).put("data", notes)
+                } catch (e: Ai.AiException) {
+                    out.put("ok", false).put("error", e.message)
+                } catch (e: OutOfMemoryError) {
+                    out.put("ok", false).put("error", "This picture is too large for the phone's memory.")
+                } catch (e: Exception) {
+                    out.put("ok", false).put("error", e.message ?: "Something went wrong with this page.")
+                }
+                emit("pageDone", out)
+            }
+        }
+
+        @JavascriptInterface
+        fun print(title: String) = runOnUiThread {
+            try {
+                val pm = getSystemService(Context.PRINT_SERVICE) as PrintManager
+                val attrs = PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).build()
+                pm.print(title, web.createPrintDocumentAdapter(title), attrs)
+            } catch (e: Exception) {
+                emitError("Could not open the print / save-as-PDF screen.")
+            }
+        }
+
+        /** Answers with an "update" event: {available, version, notes}. */
+        @JavascriptInterface
+        fun checkUpdate() {
+            io.execute {
+                val info = Updater.check()
+                updateUrl = info.optString("url", "")
+                info.remove("url")
+                emit("update", info)
+            }
+        }
+
+        @JavascriptInterface
+        fun installUpdate() {
+            val url = updateUrl
+            if (url.isEmpty()) return
+            io.execute {
+                try {
+                    val apk = Updater.download(this@MainActivity, url) { pct ->
+                        emit("updateProgress", JSONObject().put("pct", pct))
+                    }
+                    val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", apk)
+                    val intent = Intent(Intent.ACTION_VIEW)
+                        .setDataAndType(uri, "application/vnd.android.package-archive")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    runOnUiThread {
+                        try {
+                            startActivity(intent)
+                        } catch (e: Exception) {
+                            emit("updateError", JSONObject().put("message", "Could not open the installer."))
+                        }
+                    }
+                    emit("updateProgress", JSONObject().put("pct", 100).put("done", true))
+                } catch (e: Exception) {
+                    emit("updateError", JSONObject().put("message", e.message ?: "Update download failed."))
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val APP_HOST = "appassets.androidplatform.net"
+        private const val KEY_SETTINGS = "settings"
+        private const val KEY_PENDING_PHOTO = "pendingPhoto"
+    }
+}

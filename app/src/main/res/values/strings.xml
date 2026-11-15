@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NoteSaathi</string>
+    <color name="indigo">#27335B</color>
+    <color name="saffron">#E07A1F</color>
+    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/indigo</item>
+        <item name="android:navigationBarColor">#FBF6E9</item>
+        <item name="android:windowBackground">@color/indigo</item>
+        <item name="android:colorAccent">@color/saffron</item>
+    </style>
+</resources>
