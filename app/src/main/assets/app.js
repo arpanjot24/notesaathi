@@ -88,7 +88,9 @@ DOUBTFUL POINTS
    read: how well the model is expected to read handwritten notes. A general guide, not measured. */
 var MODELS = {
   gemini: [
-    { id: 'gemini-flash-lite-latest', name: 'Gemini Flash-Lite', pin: 0.3, pout: 2.5, read: 'good' },
+    { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite (older accounts only)', pin: 0.1, pout: 0.4, read: 'good' },
+    { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite', pin: 0.25, pout: 1.5, read: 'good' },
+    { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite', pin: 0.3, pout: 2.5, read: 'good' },
     { id: 'gemini-flash-latest', name: 'Gemini Flash', pin: 0.75, pout: 3.75, read: 'very good' },
     { id: 'gemini-pro-latest', name: 'Gemini Pro', pin: 2, pout: 12, read: 'excellent' }
   ],
@@ -111,6 +113,7 @@ var MODELS = {
     { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', pin: 2, pout: 10, read: 'excellent' }
   ]
 };
+var COST_SAVING_MODEL = 'gemini-3.1-flash-lite'; // same name as COST_SAVING_GEMINI_MODEL in Ai.kt
 var TYPICAL_IN = 1800, TYPICAL_OUT = 1500; // tokens for an ordinary page of notes
 
 function findModel(provider, id) {
@@ -214,8 +217,14 @@ function addUsage(total, u) {
   if (!u) return;
   total.in = (total.in || 0) + (u.in || 0);
   total.out = (total.out || 0) + (u.out || 0);
+  total.think = (total.think || 0) + (u.think || 0);
   if (u.usd >= 0) total.usd = (total.usd || 0) + u.usd;
 }
+function costSavingOn() {
+  var st = readSettings();
+  return st.provider === 'gemini' && st.costSaving === 'on';
+}
+
 function isAi() {
   return AI_PROVIDERS.indexOf(readSettings().provider) >= 0;
 }
@@ -351,13 +360,13 @@ function newJob(n, from, to) {
   return {
     n: n, from: from || 0, to: to == null ? n - 1 : to,
     results: new Array(n), errors: {}, pending: [], active: 0, paused: false, reason: '', streak: 0,
-    usage: { in: 0, out: 0 }, margins: {}
+    usage: { in: 0, out: 0 }, margins: {}, pageUsage: {}
   };
 }
 
 /* Progress is written after every page, so a long run survives the app being closed. */
 function saveJob() {
-  Android.saveData('job', job ? JSON.stringify({ n: job.n, from: job.from, to: job.to, results: job.results, usage: job.usage, margins: job.margins, balanceStart: job.balanceStart }) : '');
+  Android.saveData('job', job ? JSON.stringify({ n: job.n, from: job.from, to: job.to, results: job.results, usage: job.usage, margins: job.margins, pageUsage: job.pageUsage, balanceStart: job.balanceStart }) : '');
 }
 
 function restoreJob() {
@@ -367,6 +376,7 @@ function restoreJob() {
   job = newJob(saved.n, saved.from, saved.to);
   if (saved.usage) job.usage = saved.usage;
   if (saved.margins) job.margins = saved.margins;
+  if (saved.pageUsage) job.pageUsage = saved.pageUsage;
   if (saved.balanceStart) job.balanceStart = saved.balanceStart;
   for (var i = job.from; i <= job.to; i++) {
     if (saved.results && saved.results[i]) job.results[i] = saved.results[i];
@@ -451,6 +461,7 @@ function onPageDone(d) {
   job.active--;
   if (d.ok) {
     addUsage(job.usage, d.data._usage);
+    if (d.data._usage) job.pageUsage[d.index] = d.data._usage;
     delete d.data._usage;
     job.results[d.index] = d.data;
     job.streak = 0;
@@ -486,7 +497,7 @@ function openPreview(keepScroll) {
   var y = window.pageYOffset;
   var pages = [];
   for (var i = job.from; i <= job.to; i++) {
-    if (job.results[i]) pages.push({ source: i + 1, data: job.results[i], margin: job.margins[i] || '' });
+    if (job.results[i]) pages.push({ source: i + 1, data: job.results[i], margin: job.margins[i] || '', usage: job.pageUsage[i] || null });
   }
   if (!pages.length) return;
   currentNote = { id: 'preview', preview: true, title: 'Pages done so far', pages: pages };
@@ -533,7 +544,7 @@ function discardJob() {
 function finishJob() {
   var pages = [];
   for (var i = job.from; i <= job.to; i++) {
-    if (job.results[i]) pages.push({ source: i + 1, data: job.results[i], margin: job.margins[i] || '' });
+    if (job.results[i]) pages.push({ source: i + 1, data: job.results[i], margin: job.margins[i] || '', usage: job.pageUsage[i] || null });
   }
   var partial = job.from > 0 || job.to < job.n - 1;
   var reachedEnd = job.to >= job.n - 1;
@@ -555,10 +566,12 @@ function finishJob() {
     usage: usage,
     balanceStart: balanceStart,
     rupees: rupeesFor(usage),
-    needsTopics: isAi() && readSettings().stories !== 'off' && !(first && first.data.exact)
+    needsTopics: isAi() && readSettings().stories !== 'off' && !(first && first.data.exact) && !costSavingOn()
   };
   notes.unshift(note);
   persistNotes();
+  Android.log('run total: pages=' + pages.length + ' promptTokenCount=' + (usage.in || 0) +
+    ' candidatesTokenCount=' + ((usage.out || 0) - (usage.think || 0)) + ' thoughtsTokenCount=' + (usage.think || 0));
   if (reachedEnd) {
     // the last page is done: the source pages are no longer needed
     Android.clearPages();
@@ -703,7 +716,7 @@ function renderNoteCost() {
   if (!n || !n.rupees || !u) { $('#note-cost').textContent = ''; return; }
   $('#note-cost').textContent = 'API cost for this document: ' +
     (u.usd > 0 ? 'charged $' + u.usd.toFixed(4) + ', which is ' : 'about ') + money(n.rupees) +
-    ' (' + money(n.rupees / n.pages.length) + ' per page) · ' + tokens(u.in) + ' tokens in, ' + tokens(u.out) + ' out' +
+    ' (' + money(n.rupees / n.pages.length) + ' per page) · ' + tokens(u.in) + ' tokens in, ' + tokens(u.out) + ' out' + (u.think ? ' (' + tokens(u.think) + ' of it thinking)' : '') +
     (n.spent ? ' · DeepSeek balance actually went down by ' + spentText(n.spent) : '');
 }
 
@@ -745,6 +758,10 @@ function sheetHtml(page, index, total) {
       '</div>';
   }
 
+  if (page.usage) {
+    main += '<div class="page-tokens no-print">Tokens for this page: ' + tokens(page.usage.in) + ' in · ' +
+      tokens((page.usage.out || 0) - (page.usage.think || 0)) + ' out · ' + tokens(page.usage.think) + ' thinking</div>';
+  }
   if (d.ocr) {
     main += '<div class="basic-note no-print">The phone read the text of this page and the AI wrote it up from that, so handwriting may be misread.</div>';
   }
@@ -844,7 +861,7 @@ function showPriceHints() {
 }
 
 /* switches: [id, on by default] */
-var SWITCHES = [['stories', true], ['summaries', true], ['lowThinking', false], ['smallPictures', false], ['cheapStories', true]];
+var SWITCHES = [['stories', true], ['summaries', true], ['lowThinking', false], ['smallPictures', false], ['cheapStories', true], ['costSaving', false], ['doubtful', true]];
 
 function formSettings() {
   var s = {};
@@ -982,6 +999,13 @@ function init() {
   });
   $('#outputMode').onchange = function () {
     $('#exact-box').classList.toggle('hidden', this.value !== 'exact');
+  };
+  // turning cost-saving on picks the cheap Flash-Lite model; the model list stays the one place to change it
+  $('#costSaving').onchange = function () {
+    if (!this.checked) return;
+    var pick = $('#geminiModelPick');
+    pick.value = COST_SAVING_MODEL;
+    onModelPick(pick);
   };
   $('#btn-reset-prompt').onclick = function () { $('#customPrompt').value = DEFAULT_EXACT_PROMPT; };
   $('#btn-prices').onclick = function () {

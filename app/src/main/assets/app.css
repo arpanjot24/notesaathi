@@ -248,6 +248,7 @@ button { font: inherit; color: inherit; }
 .exact-line s { color: var(--muted); }
 .box-doubt { background: #fdeceb; border: 1.5px dashed #d98a86; }
 .box-doubt h4 { color: #a3261f; }
+.page-tokens { font-family: -apple-system, "Roboto", sans-serif; font-size: 11px; color: #a39a85; margin-top: 12px; }
 .unreadable { color: var(--muted); padding: 20px 0; }
 
 @media (min-width: 600px) {

@@ -24,7 +24,10 @@ object Ai {
     private const val TOPIC_CHUNK = 30
 
     /** The model's text plus the tokens the service says it billed for it. */
-    private class Reply(val text: String, val tokensIn: Long, val tokensOut: Long, val usd: Double = -1.0)
+    private class Reply(
+        val text: String, val tokensIn: Long, val tokensOut: Long,
+        val usd: Double = -1.0, val tokensThink: Long = 0
+    )
 
     // Claude models that accept the server-side refusal fallback.
     private val CLAUDE_FALLBACK_MODELS = setOf(
@@ -90,8 +93,9 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
     }
 
     /** usd is the real charge when the service reports one (OpenRouter does); -1 means unknown. */
-    private fun usage(tokensIn: Long, tokensOut: Long, usd: Double = -1.0): JSONObject {
-        val u = JSONObject().put("in", tokensIn).put("out", tokensOut)
+    private fun usage(tokensIn: Long, tokensOut: Long, usd: Double = -1.0, tokensThink: Long = 0): JSONObject {
+        // "out" is everything billed as output (answer + thinking); "think" is the thinking share of it
+        val u = JSONObject().put("in", tokensIn).put("out", tokensOut).put("think", tokensThink)
         if (usd >= 0) u.put("usd", usd)
         return u
     }
@@ -103,7 +107,9 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
     private fun exactPrompt(settings: JSONObject): String {
         val custom = settings.optString("customPrompt", "").trim()
         if (custom.isEmpty()) throw AiException("Open Settings, check the transcription instructions and tap Save.")
-        return custom + "\n\nReturn your whole answer as one JSON object with a single field, like this: " +
+        val cut = custom.indexOf("After the transcription, write:")
+        val rules = if (settings.optString("doubtful") == "off" && cut > 0) custom.substring(0, cut).trim() else custom
+        return rules + "\n\nReturn your whole answer as one JSON object with a single field, like this: " +
             "{\"text\": \"the complete plain-text output described above, with \\n for each line break\"}. " +
             "Put nothing outside the JSON object."
     }
@@ -116,9 +122,9 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
     }
 
     /** Cost saver: a smaller picture means fewer input tokens. */
-    private fun shrink(image: File): ByteArray {
+    private fun shrink(image: File, maxSide: Int = 1100): ByteArray {
         val bmp = android.graphics.BitmapFactory.decodeFile(image.absolutePath) ?: return image.readBytes()
-        val scale = 1100f / maxOf(bmp.width, bmp.height)
+        val scale = maxSide.toFloat() / maxOf(bmp.width, bmp.height)
         if (scale >= 1f) {
             bmp.recycle()
             return image.readBytes()
@@ -135,6 +141,9 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
 
     /** One page picture in, structured notes out. "_usage" carries the tokens billed. */
     fun makeNotes(settings: JSONObject, image: File): JSONObject {
+        if (settings.optString("provider") == "gemini" && settings.optString("costSaving") == "on") {
+            return costSavingPage(settings, image)
+        }
         val bytes = if (settings.optString("smallPictures") == "on") shrink(image) else image.readBytes()
         val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
         val summaries = settings.optString("summaries") != "off"
@@ -154,7 +163,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
             deepseekNoPictures = true
             return notesFromPhoneReading(settings, system, image)
         }
-        return shaped(parseJson(reply.text), settings).put("_usage", usage(reply.tokensIn, reply.tokensOut, reply.usd))
+        return shaped(parseJson(reply.text), settings).put("_usage", usage(reply.tokensIn, reply.tokensOut, reply.usd, reply.tokensThink))
     }
 
     private fun notesFromPhoneReading(settings: JSONObject, system: String, image: File): JSONObject {
@@ -168,7 +177,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         val user = "The page was read by OCR on a phone, so the text may contain mistakes; fix obvious OCR errors from context." +
             "${subjectNote(settings)} Make the notes from this text:\n\n$text"
         val reply = ask(settings, system, user, null)
-        return shaped(parseJson(reply.text), settings).put("_usage", usage(reply.tokensIn, reply.tokensOut, reply.usd)).put("ocr", true)
+        return shaped(parseJson(reply.text), settings).put("_usage", usage(reply.tokensIn, reply.tokensOut, reply.usd, reply.tokensThink)).put("ocr", true)
     }
 
     /**
@@ -273,6 +282,113 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         return "$who key works."
     }
 
+    // ---------------------------------------------------------------- Gemini cost-saving mode
+
+    /** The one place to change the model cost-saving mode uses when none is picked in Settings. */
+    const val COST_SAVING_GEMINI_MODEL = "gemini-3.1-flash-lite"
+    private const val COST_SAVING_MAX_SIDE = 1500
+
+    private const val COST_SAVING_PROMPT = """You transcribe handwritten Indian law notes (LLB/LLM level) exactly as written, then flag doubtful facts.
+
+TRANSCRIPTION RULES
+1. Copy the writer's words verbatim. Do NOT paraphrase, summarise, reorder, or add explanations, definitions or headings that are not on the page.
+2. Keep every negative exactly: can't, not, no, never. Double-check these.
+3. Keep the writer's abbreviations as-is: R8 = right, ICA, TPA, SOGA, b/w, eg, i.e., S. = Section.
+4. Hindi/Punjabi words: write them in the original script, then a short English meaning in [ ].
+5. Numbers and years: copy digit by digit. If a digit is unclear, write your best reading followed by (?). Never correct a year or fact inside the transcription.
+6. Case names and Acts: use this list to resolve unclear spellings. If a word clearly matches one, use it:
+   Luke v Lyde, Slade v Morley, Humber Ferryman's Case, Pacta Sunt Servanda, Assumpsit, Quid Pro Quo, Magna Carta, Indian Contract Act 1872, Transfer of Property Act (TPA), Sale of Goods Act (SOGA), Specific Relief Act, NDPS Act, Vyavaharmayukha, Smritis, Shrutis.
+7. Unreadable word: write [?]. Struck-out word: ~~word~~.
+8. Arrows (→ ↓) and numbering (1, 2, 3): keep them as written.
+
+OUTPUT FORMAT
+- Plain text, one line per handwritten line or bullet.
+- Use **bold** only where the writer underlined or highlighted.
+- No intro, no closing remarks, no page titles, no summary."""
+
+    // Left out of the request when "Include doubtful points" is off, to save output tokens.
+    private const val COST_SAVING_DOUBTFUL = """
+
+After the transcription, write:
+DOUBTFUL POINTS
+- List only facts, dates, case names or section numbers in the notes that may be legally or historically wrong. Give the likely correct version. Max 1 line each, max 5 items.
+- If nothing is doubtful, write "None".
+- Do not change the transcription itself."""
+
+    // Which request shape each model accepted, so a rejected setting is only tried once per model.
+    private val costSavingShape = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /**
+     * One page, one request: system_instruction + (page picture, "Transcribe."), plain-text reply.
+     * Settings are tried from cheapest to plainest, because models differ in what they accept:
+     *   0: temperature 0, medium picture detail, thinking budget 0   (models where thinking can be off)
+     *   1: the same, but thinking level "minimal"                    (Gemini 3.x Flash-Lite: cannot be off)
+     *   2: no thinking setting at all
+     *   3: no thinking setting and default picture detail
+     */
+    private fun costSavingPage(settings: JSONObject, image: File): JSONObject {
+        val key = settings.optString("geminiKey", "").trim()
+        if (key.isEmpty()) throw AiException("Add your Gemini API key in Settings first.")
+        val model = settings.optString("geminiModel", "").trim().ifEmpty { COST_SAVING_GEMINI_MODEL }
+        val b64 = Base64.encodeToString(shrink(image, COST_SAVING_MAX_SIDE), Base64.NO_WRAP)
+        val system = COST_SAVING_PROMPT + if (settings.optString("doubtful") != "off") COST_SAVING_DOUBTFUL else ""
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
+
+        var shape = costSavingShape[model] ?: 0
+        while (true) {
+            val config = JSONObject().put("temperature", 0)
+            if (shape <= 2) config.put("mediaResolution", "MEDIA_RESOLUTION_MEDIUM")
+            if (shape == 0) config.put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+            if (shape == 1) config.put("thinkingConfig", JSONObject().put("thinkingLevel", "minimal"))
+            val body = JSONObject()
+                .put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
+                .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray()
+                    .put(JSONObject().put("inline_data", JSONObject().put("mime_type", "image/jpeg").put("data", b64)))
+                    .put(JSONObject().put("text", "Transcribe.")))))
+                .put("generationConfig", config)
+
+            val res = try {
+                postWithRetry(url, mapOf("x-goog-api-key" to key), body.toString(), "Gemini")
+            } catch (e: AiException) {
+                // 400 = this model does not take one of the settings: step down and ask again
+                if (e.code != 400 || shape >= 3) throw e
+                shape++
+                continue
+            }
+            costSavingShape[model] = shape
+
+            val json = JSONObject(res)
+            val cand = json.optJSONArray("candidates")?.optJSONObject(0)
+                ?: throw AiException("Gemini did not answer for this page.")
+            val parts = cand.optJSONObject("content")?.optJSONArray("parts")
+            val sb = StringBuilder()
+            if (parts != null) {
+                for (i in 0 until parts.length()) {
+                    val p = parts.getJSONObject(i)
+                    if (!p.optBoolean("thought", false)) sb.append(p.optString("text", ""))
+                }
+            }
+            if (cand.optString("finishReason", "") == "MAX_TOKENS") {
+                throw AiException("There is too much here for one go. Photograph the page in two halves.")
+            }
+            if (sb.isBlank()) throw AiException("Gemini returned nothing for this page.")
+
+            val u = json.optJSONObject("usageMetadata")
+            val prompt = u?.optLong("promptTokenCount", 0) ?: 0
+            val candidates = u?.optLong("candidatesTokenCount", 0) ?: 0
+            val thoughts = u?.optLong("thoughtsTokenCount", 0) ?: 0
+            android.util.Log.i(
+                "NoteSaathi",
+                "cost-saving page ${image.name} model=$model shape=$shape " +
+                    "promptTokenCount=$prompt candidatesTokenCount=$candidates thoughtsTokenCount=$thoughts"
+            )
+            return JSONObject()
+                .put("exact", true)
+                .put("text", sb.toString().trim())
+                .put("_usage", usage(prompt, candidates + thoughts, tokensThink = thoughts))
+        }
+    }
+
     // ---------------------------------------------------------------- Gemini
 
     private fun gemini(settings: JSONObject, system: String, user: String, imageB64: String?): Reply {
@@ -329,7 +445,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         val u = json.optJSONObject("usageMetadata")
         val tokensIn = u?.optLong("promptTokenCount", 0) ?: 0
         val tokensOut = (u?.optLong("candidatesTokenCount", 0) ?: 0) + (u?.optLong("thoughtsTokenCount", 0) ?: 0)
-        return Reply(sb.toString(), tokensIn, tokensOut)
+        return Reply(sb.toString(), tokensIn, tokensOut, tokensThink = u?.optLong("thoughtsTokenCount", 0) ?: 0)
     }
 
     // ---------------------------------------------------------------- Claude

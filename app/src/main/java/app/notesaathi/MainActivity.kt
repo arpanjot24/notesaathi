@@ -257,6 +257,12 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun pageCount(): Int = pages.count()
 
+        /** Writes a line to the phone's system log (tag NoteSaathi), e.g. the token total of a run. */
+        @JavascriptInterface
+        fun log(message: String) {
+            android.util.Log.i("NoteSaathi", message)
+        }
+
         /** Notes and the in-progress run are kept as files so their size is not limited. */
         @JavascriptInterface
         fun loadData(name: String): String = try {
