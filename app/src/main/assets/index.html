@@ -56,8 +56,9 @@
         <div class="bar"><div class="bar-fill" id="job-bar"></div></div>
         <div id="job-errors" class="job-errors"></div>
         <div id="job-actions" class="job-actions hidden">
-          <button class="btn btn-primary" id="btn-retry">Try failed pages again</button>
-          <button class="btn" id="btn-keep">Save the pages that worked</button>
+          <button class="btn btn-primary" id="btn-retry">Continue</button>
+          <button class="btn" id="btn-keep">Save the pages done so far</button>
+          <button class="btn" id="btn-discard">Cancel run</button>
         </div>
       </div>
 
@@ -114,6 +115,7 @@
       <label class="field">API key
         <div class="key-row"><input type="password" id="geminiKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Gemini key"><button class="link-btn" data-show="geminiKey">Show</button></div>
       </label>
+      <div class="test-row"><button class="btn btn-small" data-test="gemini">Test key</button><span class="test-result" id="test-gemini"></span></div>
       <p class="hint small">Get a key at <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a></p>
       <label class="field">Model <input type="text" id="geminiModel" autocapitalize="off" spellcheck="false"></label>
     </div>
@@ -123,6 +125,7 @@
       <label class="field">API key
         <div class="key-row"><input type="password" id="claudeKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Claude key"><button class="link-btn" data-show="claudeKey">Show</button></div>
       </label>
+      <div class="test-row"><button class="btn btn-small" data-test="claude">Test key</button><span class="test-result" id="test-claude"></span></div>
       <p class="hint small">Get a key at <a href="https://console.anthropic.com/settings/keys">console.anthropic.com</a></p>
       <label class="field">Model <input type="text" id="claudeModel" autocapitalize="off" spellcheck="false"></label>
     </div>

@@ -75,6 +75,42 @@ If the picture has no readable notes (blank, too blurry, or not notes at all), r
         return parseJson(text)
     }
 
+    /** One tiny request to check a key and model name. Returns a success line or throws. */
+    fun testKey(settings: JSONObject): String {
+        val claude = settings.optString("provider") == "claude"
+        val who = if (claude) "Claude" else "Gemini"
+        val key = settings.optString(if (claude) "claudeKey" else "geminiKey", "").trim()
+        if (key.isEmpty()) throw AiException("Paste your $who key first.")
+        val result = try {
+            if (claude) {
+                val model = settings.optString("claudeModel", "").trim().ifEmpty { DEFAULT_CLAUDE_MODEL }
+                val body = JSONObject().put("model", model).put("max_tokens", 16)
+                    .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Say OK")))
+                post(
+                    "https://api.anthropic.com/v1/messages",
+                    mapOf("x-api-key" to key, "anthropic-version" to "2023-06-01"),
+                    body.toString()
+                )
+            } else {
+                val model = settings.optString("geminiModel", "").trim().ifEmpty { DEFAULT_GEMINI_MODEL }
+                val body = JSONObject().put("contents", JSONArray().put(
+                    JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", "Say OK")))
+                ))
+                post(
+                    "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent",
+                    mapOf("x-goog-api-key" to key),
+                    body.toString()
+                )
+            }
+        } catch (e: UnknownHostException) {
+            throw AiException("No internet connection.")
+        } catch (e: java.io.IOException) {
+            throw AiException("Network problem: ${e.message ?: "connection lost"}")
+        }
+        if (result.first !in 200..299) throw AiException(errorMessage(who, result.first, result.second))
+        return "$who key works."
+    }
+
     // ---------------------------------------------------------------- Gemini
 
     private fun gemini(settings: JSONObject, b64: String): String {
@@ -177,7 +213,7 @@ If the picture has no readable notes (blank, too blurry, or not notes at all), r
     }
 
     private fun postWithRetry(url: String, headers: Map<String, String>, body: String, who: String): String {
-        val waits = longArrayOf(3000, 9000)
+        val waits = longArrayOf(4000, 12000, 30000)
         var attempt = 0
         while (true) {
             val (code, text) = try {

@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
     private val pdfLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             importing("Opening PDF…") {
-                val total = pages.addPdf(uri)
+                val total = pages.addPdf(uri, pdfProgress)
                 if (total > Pages.MAX_PDF_PAGES) {
                     "This PDF has $total pages. Only the first ${Pages.MAX_PDF_PAGES} were added; split the PDF to do the rest."
                 } else null
@@ -144,7 +144,7 @@ class MainActivity : ComponentActivity() {
                 val type = contentResolver.getType(uri) ?: hint
                 val isPdf = type == "application/pdf" || uri.toString().lowercase().endsWith(".pdf")
                 if (isPdf) {
-                    val total = pages.addPdf(uri)
+                    val total = pages.addPdf(uri, pdfProgress)
                     if (total > Pages.MAX_PDF_PAGES) {
                         note = "This PDF has $total pages. Only the first ${Pages.MAX_PDF_PAGES} were added; split the PDF to do the rest."
                     }
@@ -164,6 +164,10 @@ class MainActivity : ComponentActivity() {
     private fun emit(event: String, data: JSONObject) {
         val js = "window.onNative && window.onNative(${JSONObject.quote(event)}, $data)"
         runOnUiThread { web.evaluateJavascript(js, null) }
+    }
+
+    private val pdfProgress: (Int, Int) -> Unit = { done, total ->
+        emit("busy", JSONObject().put("on", true).put("text", "Opening PDF… page $done of $total"))
     }
 
     private fun emitError(message: String) = emit("error", JSONObject().put("message", message))
@@ -249,6 +253,40 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun pageCount(): Int = pages.count()
 
+        /** Notes and the in-progress run are kept as files so their size is not limited. */
+        @JavascriptInterface
+        fun loadData(name: String): String = try {
+            val f = File(filesDir, dataFile(name))
+            if (f.exists()) f.readText() else ""
+        } catch (e: Exception) {
+            ""
+        }
+
+        @JavascriptInterface
+        fun saveData(name: String, json: String): Boolean = try {
+            val f = File(filesDir, dataFile(name))
+            if (json.isEmpty()) {
+                f.delete()
+            } else {
+                val tmp = File(filesDir, dataFile(name) + ".tmp")
+                tmp.writeText(json)
+                f.delete()
+                tmp.renameTo(f)
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+
+        private fun dataFile(name: String): String = if (name == "job") "job.json" else "notes.json"
+
+        /** Keeps the screen on while a long run is working, so the phone does not pause it. */
+        @JavascriptInterface
+        fun keepAwake(on: Boolean) = runOnUiThread {
+            val flag = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            if (on) window.addFlags(flag) else window.clearFlags(flag)
+        }
+
         @JavascriptInterface
         fun thumb(index: Int): String = try {
             pages.thumb(index)
@@ -264,6 +302,22 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun clearPages() {
             pages.clear()
+        }
+
+        /** Checks the key typed in Settings. Answers with a "keyTest" event: {provider, ok, message}. */
+        @JavascriptInterface
+        fun testKey(json: String) {
+            io.execute {
+                val out = JSONObject()
+                try {
+                    val s = JSONObject(json)
+                    out.put("provider", s.optString("provider"))
+                    out.put("ok", true).put("message", Ai.testKey(s))
+                } catch (e: Exception) {
+                    out.put("ok", false).put("message", e.message ?: "Could not check the key.")
+                }
+                emit("keyTest", out)
+            }
         }
 
         /** Answers later with a "pageDone" event: {index, ok, data | error}. */

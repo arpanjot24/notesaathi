@@ -28,11 +28,16 @@ function list(v) {
 /* ───────── saved notes ───────── */
 var notes = [];
 function loadNotes() {
-  try { notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]') || []; } catch (e) { notes = []; }
+  var raw = Android.loadData('notes');
+  if (!raw) { try { raw = localStorage.getItem(NOTES_KEY) || ''; } catch (e) { raw = ''; } } // from versions before 1.0.5
+  try { notes = JSON.parse(raw || '[]') || []; } catch (e) { notes = []; }
 }
 function persistNotes() {
-  try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
-  catch (e) { toast('Phone storage for notes is full. Delete some old notes.'); }
+  if (!Android.saveData('notes', JSON.stringify(notes))) {
+    toast('Could not save. The phone may be out of storage.');
+    return;
+  }
+  try { localStorage.removeItem(NOTES_KEY); } catch (e) {}
 }
 
 /* ───────── views ───────── */
@@ -70,12 +75,19 @@ function renderPages() {
   $('#btn-make').textContent = n === 1 ? 'Make my notes' : 'Make my notes (' + n + ' pages)';
   var box = $('#thumbs');
   box.innerHTML = '';
-  for (var i = 0; i < n; i++) {
+  var shown = Math.min(n, 24);
+  for (var i = 0; i < shown; i++) {
     var d = document.createElement('div');
     d.className = 'thumb';
     d.innerHTML = '<img alt=""><span class="thumb-n">' + (i + 1) + '</span>' +
       '<button class="thumb-x" data-i="' + i + '" aria-label="Remove page ' + (i + 1) + '">✕</button>';
     box.appendChild(d);
+  }
+  if (n > shown) {
+    var more = document.createElement('div');
+    more.className = 'thumb thumb-more';
+    more.textContent = '+' + (n - shown);
+    box.appendChild(more);
   }
   // fill pictures one at a time so the screen stays responsive
   var imgs = box.querySelectorAll('img');
@@ -114,6 +126,31 @@ function hasKey() {
   return true; // on-device mode needs no key
 }
 
+function newJob(n) {
+  return { n: n, results: new Array(n), errors: {}, pending: [], active: 0, paused: false, reason: '', streak: 0 };
+}
+
+/* Progress is written after every page, so a long run survives the app being closed. */
+function saveJob() {
+  Android.saveData('job', job ? JSON.stringify({ n: job.n, results: job.results }) : '');
+}
+
+function restoreJob() {
+  var saved = null;
+  try { saved = JSON.parse(Android.loadData('job') || 'null'); } catch (e) { saved = null; }
+  if (!saved || !saved.n || saved.n !== Android.pageCount()) { Android.saveData('job', ''); return; }
+  job = newJob(saved.n);
+  for (var i = 0; i < saved.n; i++) {
+    if (saved.results && saved.results[i]) job.results[i] = saved.results[i];
+    else job.pending.push(i);
+  }
+  job.paused = true;
+  job.reason = 'This run was interrupted. Tap Continue to carry on from where it stopped.';
+  if (!job.pending.length) finishJob();
+}
+
+function awake(on) { Android.keepAwake(!!on); }
+
 function startJob() {
   var n = Android.pageCount();
   if (!n) return;
@@ -122,19 +159,20 @@ function startJob() {
     openSettings();
     return;
   }
-  job = { n: n, results: new Array(n), errors: {}, pending: [], active: 0 };
+  job = newJob(n);
   for (var i = 0; i < n; i++) job.pending.push(i);
   renderPages();
   pump();
 }
 
 function pump() {
-  while (job.active < 2 && job.pending.length) {
+  while (!job.paused && job.active < 2 && job.pending.length) {
     var i = job.pending.shift();
     delete job.errors[i];
     job.active++;
     Android.transcribe(i);
   }
+  awake(job.active > 0);
   renderJob();
 }
 
@@ -144,28 +182,60 @@ function renderJob() {
   box.classList.remove('hidden');
   var done = 0;
   for (var i = 0; i < job.n; i++) if (job.results[i]) done++;
-  var failed = Object.keys(job.errors).length;
-  var running = job.active > 0 || job.pending.length > 0;
+  var failedKeys = Object.keys(job.errors);
+  var left = job.pending.length;
+  var running = job.active > 0 || (!job.paused && left > 0);
   $('#job-spin').classList.toggle('hidden', !running);
-  $('#job-bar').style.width = Math.round(((done + failed) / job.n) * 100) + '%';
+  $('#job-bar').style.width = Math.round((done / job.n) * 100) + '%';
   $('#job-text').textContent = running
-    ? 'Reading and writing your notes… ' + done + ' of ' + job.n + ' pages done'
-    : done + ' of ' + job.n + ' pages done, ' + failed + ' could not be done';
-  $('#job-errors').innerHTML = Object.keys(job.errors).map(function (k) {
+    ? 'Reading and writing your notes… ' + done + ' of ' + job.n + ' pages done' + (job.paused ? ' (stopping)' : '')
+    : done + ' of ' + job.n + ' pages done. ' + (job.reason || (failedKeys.length + ' could not be done.'));
+  var shownErrors = failedKeys.slice(-4).map(function (k) {
     return '<div>Page ' + (Number(k) + 1) + ': ' + esc(job.errors[k]) + '</div>';
-  }).join('');
-  $('#job-actions').classList.toggle('hidden', running || failed === 0);
+  });
+  if (failedKeys.length > 4) shownErrors.push('<div>…and ' + (failedKeys.length - 4) + ' more pages failed.</div>');
+  $('#job-errors').innerHTML = shownErrors.join('');
+  $('#job-actions').classList.toggle('hidden', running || (failedKeys.length === 0 && left === 0));
   $('#btn-keep').classList.toggle('hidden', done === 0);
 }
 
 function onPageDone(d) {
   if (!job) return;
   job.active--;
-  if (d.ok) job.results[d.index] = d.data;
-  else job.errors[d.index] = d.error || 'Something went wrong.';
-  if (job.pending.length) { pump(); return; }
+  if (d.ok) {
+    job.results[d.index] = d.data;
+    job.streak = 0;
+    saveJob();
+  } else {
+    job.errors[d.index] = d.error || 'Something went wrong.';
+    job.streak++;
+    if (job.streak >= 4 && !job.paused) {
+      job.paused = true;
+      job.reason = 'Stopped because several pages failed in a row. If it is a usage limit, wait a while and tap Continue.';
+    }
+  }
+  pump();
+  if (job.active === 0 && !job.pending.length && !Object.keys(job.errors).length) finishJob();
+}
+
+function continueJob() {
+  if (!job) return;
+  job.pending = job.pending.concat(Object.keys(job.errors).map(Number)).sort(function (x, y) { return x - y; });
+  job.errors = {};
+  job.paused = false;
+  job.reason = '';
+  job.streak = 0;
+  pump();
+}
+
+function discardJob() {
+  if (!job) return;
+  if (!confirm('Cancel this run? The pages already done in it will be thrown away.')) return;
+  job = null;
+  saveJob();
+  awake(false);
   renderJob();
-  if (job.active === 0 && Object.keys(job.errors).length === 0) finishJob();
+  renderPages();
 }
 
 function finishJob() {
@@ -174,6 +244,8 @@ function finishJob() {
     if (job.results[i]) pages.push({ source: i + 1, data: job.results[i], margin: '' });
   }
   job = null;
+  saveJob();
+  awake(false);
   renderJob();
   if (!pages.length) { renderPages(); return; }
   var first = pages.filter(function (p) { return !p.data.unreadable; })[0];
@@ -268,14 +340,30 @@ function openSettings() {
   $('#claudeModel').value = s.claudeModel || s.defaultClaudeModel || '';
   $('#mnemonicStyle').value = s.mnemonicStyle || 'mix';
   $('#subject').value = s.subject || '';
+  $('#test-gemini').textContent = '';
+  $('#test-claude').textContent = '';
   show('settings');
 }
 
-function saveSettings() {
+function formSettings() {
   var s = {};
   SETTING_IDS.forEach(function (id) { s[id] = $('#' + id).value.trim(); });
   var checked = document.querySelector('input[name=provider]:checked');
   s.provider = checked ? checked.value : 'offline';
+  return s;
+}
+
+function testKey(provider) {
+  var s = formSettings();
+  s.provider = provider;
+  var line = $('#test-' + provider);
+  line.className = 'test-result';
+  line.textContent = 'Checking…';
+  Android.testKey(JSON.stringify(s));
+}
+
+function saveSettings() {
+  var s = formSettings();
   Android.saveSettings(JSON.stringify(s));
   toast('Settings saved.');
   show('home');
@@ -294,6 +382,12 @@ window.onNative = function (event, d) {
     if (d.message) toast(d.message);
   } else if (event === 'error') {
     toast(d.message || 'Something went wrong.');
+  } else if (event === 'keyTest') {
+    var line = $('#test-' + d.provider);
+    if (line) {
+      line.className = 'test-result ' + (d.ok ? 'ok' : 'bad');
+      line.textContent = (d.ok ? '✓ ' : '✗ ') + (d.message || '');
+    }
   } else if (event === 'pageDone') {
     onPageDone(d);
   } else if (event === 'update') {
@@ -325,11 +419,13 @@ function init() {
     var b = e.target.closest ? e.target.closest('.thumb-x') : null;
     if (b) { Android.removePage(Number(b.getAttribute('data-i'))); renderPages(); }
   };
-  $('#btn-retry').onclick = function () {
-    job.pending = Object.keys(job.errors).map(Number);
-    pump();
+  $('#btn-retry').onclick = continueJob;
+  $('#btn-keep').onclick = function () {
+    if (job.pending.length + Object.keys(job.errors).length > 0 &&
+        !confirm('Save only the pages done so far? The remaining pages will be dropped from this run.')) return;
+    finishJob();
   };
-  $('#btn-keep').onclick = finishJob;
+  $('#btn-discard').onclick = discardJob;
   $('#notes-list').onclick = function (e) {
     var row = e.target.closest ? e.target.closest('.note-row') : null;
     if (row) openNote(Number(row.getAttribute('data-id')));
@@ -338,6 +434,9 @@ function init() {
   $('#btn-settings').onclick = openSettings;
   $('#btn-settings-back').onclick = function () { show('home'); };
   $('#btn-save-settings').onclick = saveSettings;
+  document.querySelectorAll('[data-test]').forEach(function (b) {
+    b.onclick = function () { testKey(b.getAttribute('data-test')); };
+  });
   document.querySelectorAll('[data-show]').forEach(function (b) {
     b.onclick = function () {
       var input = $('#' + b.getAttribute('data-show'));
@@ -365,7 +464,9 @@ function init() {
   $('#btn-update').onclick = function () { Android.installUpdate(); };
 
   $('#version').textContent = 'NoteSaathi ' + Android.version();
+  restoreJob();
   renderPages();
+  renderJob();
   renderNotesList();
   Android.checkUpdate();
 }

@@ -86,7 +86,7 @@ class Pages(private val ctx: Context) {
     }
 
     /** Renders each PDF page to a picture. Returns the total page count of the PDF. */
-    fun addPdf(uri: Uri): Int {
+    fun addPdf(uri: Uri, onPage: (Int, Int) -> Unit = { _, _ -> }): Int {
         val pfd = ctx.contentResolver.openFileDescriptor(uri, "r")
             ?: throw IllegalStateException("Could not open that PDF.")
         return pfd.use { fd ->
@@ -109,6 +109,7 @@ class Pages(private val ctx: Context) {
                     page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
                     page.close()
                     save(bmp)
+                    onPage(i + 1, total)
                 }
                 total
             }
@@ -127,6 +128,6 @@ class Pages(private val ctx: Context) {
 
     companion object {
         const val MAX_SIDE = 1800
-        const val MAX_PDF_PAGES = 60
+        const val MAX_PDF_PAGES = 1000
     }
 }
