@@ -103,6 +103,14 @@ button { font: inherit; color: inherit; }
 .thumb-n { position: absolute; left: 4px; bottom: 4px; background: rgba(39,51,91,.85); color: #fff; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 1px 6px; }
 .thumb-x { position: absolute; right: 2px; top: 2px; width: 24px; height: 24px; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 14px; line-height: 1; }
 
+.range { display: flex; align-items: center; margin-top: 12px; font-size: 15px; font-weight: 600; }
+.range input {
+  width: 68px; min-height: 42px; margin: 0 8px; padding: 6px 8px; text-align: center;
+  font: inherit; font-size: 16px; color: var(--ink);
+  background: #fff; border: 1px solid #d9cdb2; border-radius: 10px;
+}
+.range input:focus { outline: 2px solid var(--saffron); border-color: var(--saffron); }
+#range-of { color: var(--muted); font-weight: 400; }
 .job { margin-top: 4px; }
 .bar { height: 8px; background: #eadfc8; border-radius: 4px; overflow: hidden; margin-top: 10px; }
 .bar-fill { height: 100%; width: 0; background: var(--saffron); transition: width .3s; }

@@ -2,6 +2,7 @@
 
 var $ = function (sel) { return document.querySelector(sel); };
 var NOTES_KEY = 'notesaathi.notes';
+var NEXT_KEY = 'notesaathi.nextFrom';
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -72,7 +73,14 @@ function renderPages() {
   $('#pages-box').classList.toggle('hidden', n === 0 || !!job);
   $('#empty-hint').classList.toggle('hidden', n > 0 || !!job);
   $('#pages-count').textContent = n + (n === 1 ? ' page ready' : ' pages ready');
-  $('#btn-make').textContent = n === 1 ? 'Make my notes' : 'Make my notes (' + n + ' pages)';
+  // which pages to do: defaults to "the rest", starting after the last page done earlier
+  var nextFrom = 1;
+  try { nextFrom = Number(localStorage.getItem(NEXT_KEY)) || 1; } catch (e) { nextFrom = 1; }
+  if (nextFrom < 1 || nextFrom > n) nextFrom = 1;
+  $('#range-row').classList.toggle('hidden', n < 2);
+  $('#range-from').value = nextFrom;
+  $('#range-to').value = n;
+  $('#range-of').textContent = 'of ' + n;
   var box = $('#thumbs');
   box.innerHTML = '';
   var shown = Math.min(n, 24);
@@ -126,21 +134,25 @@ function hasKey() {
   return true; // on-device mode needs no key
 }
 
-function newJob(n) {
-  return { n: n, results: new Array(n), errors: {}, pending: [], active: 0, paused: false, reason: '', streak: 0 };
+/* from / to are page positions counted from 0, both included */
+function newJob(n, from, to) {
+  return {
+    n: n, from: from || 0, to: to == null ? n - 1 : to,
+    results: new Array(n), errors: {}, pending: [], active: 0, paused: false, reason: '', streak: 0
+  };
 }
 
 /* Progress is written after every page, so a long run survives the app being closed. */
 function saveJob() {
-  Android.saveData('job', job ? JSON.stringify({ n: job.n, results: job.results }) : '');
+  Android.saveData('job', job ? JSON.stringify({ n: job.n, from: job.from, to: job.to, results: job.results }) : '');
 }
 
 function restoreJob() {
   var saved = null;
   try { saved = JSON.parse(Android.loadData('job') || 'null'); } catch (e) { saved = null; }
   if (!saved || !saved.n || saved.n !== Android.pageCount()) { Android.saveData('job', ''); return; }
-  job = newJob(saved.n);
-  for (var i = 0; i < saved.n; i++) {
+  job = newJob(saved.n, saved.from, saved.to);
+  for (var i = job.from; i <= job.to; i++) {
     if (saved.results && saved.results[i]) job.results[i] = saved.results[i];
     else job.pending.push(i);
   }
@@ -159,8 +171,18 @@ function startJob() {
     openSettings();
     return;
   }
-  job = newJob(n);
-  for (var i = 0; i < n; i++) job.pending.push(i);
+  var from = 1, to = n;
+  if (n > 1) {
+    from = Number($('#range-from').value);
+    to = Number($('#range-to').value);
+    var whole = from === Math.floor(from) && to === Math.floor(to);
+    if (!whole || from < 1 || to > n || from > to) {
+      toast('Choose page numbers between 1 and ' + n + ', with the first not after the last.');
+      return;
+    }
+  }
+  job = newJob(n, from - 1, to - 1);
+  for (var i = job.from; i <= job.to; i++) job.pending.push(i);
   renderPages();
   pump();
 }
@@ -180,16 +202,17 @@ function renderJob() {
   var box = $('#job');
   if (!job) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
+  var total = job.to - job.from + 1;
   var done = 0;
-  for (var i = 0; i < job.n; i++) if (job.results[i]) done++;
+  for (var i = job.from; i <= job.to; i++) if (job.results[i]) done++;
   var failedKeys = Object.keys(job.errors);
   var left = job.pending.length;
   var running = job.active > 0 || (!job.paused && left > 0);
   $('#job-spin').classList.toggle('hidden', !running);
-  $('#job-bar').style.width = Math.round((done / job.n) * 100) + '%';
+  $('#job-bar').style.width = Math.round((done / total) * 100) + '%';
   $('#job-text').textContent = running
-    ? 'Reading and writing your notes… ' + done + ' of ' + job.n + ' pages done' + (job.paused ? ' (stopping)' : '')
-    : done + ' of ' + job.n + ' pages done. ' + (job.reason || (failedKeys.length + ' could not be done.'));
+    ? 'Reading and writing your notes… ' + done + ' of ' + total + ' pages done' + (job.paused ? ' (stopping)' : '')
+    : done + ' of ' + total + ' pages done. ' + (job.reason || (failedKeys.length + ' could not be done.'));
   var shownErrors = failedKeys.slice(-4).map(function (k) {
     return '<div>Page ' + (Number(k) + 1) + ': ' + esc(job.errors[k]) + '</div>';
   });
@@ -240,9 +263,13 @@ function discardJob() {
 
 function finishJob() {
   var pages = [];
-  for (var i = 0; i < job.n; i++) {
+  for (var i = job.from; i <= job.to; i++) {
     if (job.results[i]) pages.push({ source: i + 1, data: job.results[i], margin: '' });
   }
+  var partial = job.from > 0 || job.to < job.n - 1;
+  var reachedEnd = job.to >= job.n - 1;
+  var rangeLabel = ' (pages ' + (job.from + 1) + '–' + (job.to + 1) + ')';
+  var nextStart = job.to + 2;
   job = null;
   saveJob();
   awake(false);
@@ -251,13 +278,20 @@ function finishJob() {
   var first = pages.filter(function (p) { return !p.data.unreadable; })[0];
   var note = {
     id: Date.now(),
-    title: (first && first.data.title) || 'My notes',
+    title: ((first && first.data.title) || 'My notes') + (partial ? rangeLabel : ''),
     created: Date.now(),
     pages: pages
   };
   notes.unshift(note);
   persistNotes();
-  Android.clearPages();
+  if (reachedEnd) {
+    // the last page is done: the source pages are no longer needed
+    Android.clearPages();
+    try { localStorage.removeItem(NEXT_KEY); } catch (e) {}
+  } else {
+    // pages after this range are kept so the next range can be done later
+    try { localStorage.setItem(NEXT_KEY, String(nextStart)); } catch (e) {}
+  }
   renderPages();
   renderNotesList();
   openNote(note.id);
@@ -266,7 +300,7 @@ function finishJob() {
 /* ───────── note viewer ───────── */
 function sheetHtml(page, index, total) {
   var d = page.data || {};
-  var main = '<div class="sheet-page">Page ' + (index + 1) + ' of ' + total +
+  var main = '<div class="sheet-page">Page ' + (page.source || index + 1) +
     (d.language ? ' · from ' + esc(d.language) : '') + '</div>';
 
   if (d.unreadable) {
@@ -413,7 +447,11 @@ function init() {
   $('#btn-camera').onclick = function () { Android.takePhoto(); };
   $('#btn-gallery').onclick = function () { Android.pickImages(); };
   $('#btn-pdf').onclick = function () { Android.pickPdf(); };
-  $('#btn-clear').onclick = function () { Android.clearPages(); renderPages(); };
+  $('#btn-clear').onclick = function () {
+    Android.clearPages();
+    try { localStorage.removeItem(NEXT_KEY); } catch (e) {}
+    renderPages();
+  };
   $('#btn-make').onclick = startJob;
   $('#thumbs').onclick = function (e) {
     var b = e.target.closest ? e.target.closest('.thumb-x') : null;
