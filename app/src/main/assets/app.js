@@ -31,7 +31,7 @@ var AI_PROVIDERS = ['gemini', 'claude', 'deepseek'];
 /* ───────── cost ───────── */
 /* Built-in prices in US$ per million tokens [input, output]; editable in Settings. */
 function defaultPrices(st) {
-  if (st.provider === 'deepseek') return [0.28, 0.42];
+  if (st.provider === 'deepseek') return (st.deepseekModel || '').indexOf('chat') >= 0 ? [0.28, 0.42] : [0.3, 1.2];
   if (st.provider === 'claude') {
     var m = st.claudeModel || st.defaultClaudeModel || '';
     if (m.indexOf('haiku') >= 0) return [0.1, 0.5];
@@ -40,11 +40,22 @@ function defaultPrices(st) {
     return [4, 20];
   }
   var g = st.geminiModel || st.defaultGeminiModel || '';
-  if (g.indexOf('lite') >= 0) return [0.25, 1.5];
+  if (g.indexOf('lite') >= 0) return [0.3, 2.5];
   if (g.indexOf('pro') >= 0) return [2, 10];
   return [0.75, 3.75];
 }
-var DEFAULT_USD_INR = 88;
+var DEFAULT_USD_INR = 94;
+var DEFAULT_USD_CNY = 6.7;
+
+/* A balance change in the account's own currency, shown with its rupee value. */
+function spentText(spent) {
+  var st = readSettings();
+  var inr = Number(st.usdInr) > 0 ? Number(st.usdInr) : DEFAULT_USD_INR;
+  var cny = Number(st.usdCny) > 0 ? Number(st.usdCny) : DEFAULT_USD_CNY;
+  var rupees = spent.currency === 'CNY' ? spent.amount * inr / cny : spent.amount * inr;
+  var sym = spent.currency === 'CNY' ? '¥' : '$';
+  return sym + spent.amount.toFixed(4) + ' (' + money(rupees) + ')';
+}
 
 function rupeesFor(usage) {
   var st = readSettings();
@@ -202,7 +213,7 @@ function newJob(n, from, to) {
 
 /* Progress is written after every page, so a long run survives the app being closed. */
 function saveJob() {
-  Android.saveData('job', job ? JSON.stringify({ n: job.n, from: job.from, to: job.to, results: job.results, usage: job.usage, margins: job.margins }) : '');
+  Android.saveData('job', job ? JSON.stringify({ n: job.n, from: job.from, to: job.to, results: job.results, usage: job.usage, margins: job.margins, balanceStart: job.balanceStart }) : '');
 }
 
 function restoreJob() {
@@ -212,6 +223,7 @@ function restoreJob() {
   job = newJob(saved.n, saved.from, saved.to);
   if (saved.usage) job.usage = saved.usage;
   if (saved.margins) job.margins = saved.margins;
+  if (saved.balanceStart) job.balanceStart = saved.balanceStart;
   for (var i = job.from; i <= job.to; i++) {
     if (saved.results && saved.results[i]) job.results[i] = saved.results[i];
     else job.pending.push(i);
@@ -242,6 +254,7 @@ function startJob() {
     }
   }
   job = newJob(n, from - 1, to - 1);
+  if (readSettings().provider === 'deepseek') Android.deepseekBalance('start');
   for (var i = job.from; i <= job.to; i++) job.pending.push(i);
   renderPages();
   pump();
@@ -383,6 +396,7 @@ function finishJob() {
   var rangeLabel = ' (pages ' + (job.from + 1) + '–' + (job.to + 1) + ')';
   var nextStart = job.to + 2;
   var usage = job.usage;
+  var balanceStart = job.balanceStart || null;
   job = null;
   saveJob();
   awake(false);
@@ -395,6 +409,7 @@ function finishJob() {
     created: Date.now(),
     pages: pages,
     usage: usage,
+    balanceStart: balanceStart,
     rupees: rupeesFor(usage),
     needsTopics: isAi() && readSettings().stories !== 'off'
   };
@@ -414,6 +429,7 @@ function finishJob() {
   openNote(note.id);
   if (readingAt !== null) window.scrollTo(0, readingAt);
   if (note.needsTopics) startTopics(note);
+  else askEndBalance(note);
 }
 
 /* ───────── topics: one memory story per topic, written after all pages are read ───────── */
@@ -448,6 +464,47 @@ function startTopics(note) {
   Android.makeTopics(String(note.id), JSON.stringify(digest));
 }
 
+/* DeepSeek only: compare the account balance before and after to get the real amount charged. */
+function askEndBalance(note) {
+  if (note && note.balanceStart && !note.spent) Android.deepseekBalance('end:' + note.id);
+}
+
+function onBalance(d) {
+  if (!d.ok) return;
+  if (d.tag === 'start') {
+    if (job && !job.balanceStart) { job.balanceStart = { amount: d.amount, currency: d.currency }; saveJob(); }
+    return;
+  }
+  var id = Number(String(d.tag).replace('end:', ''));
+  var note = notes.filter(function (n) { return n.id === id; })[0];
+  if (!note || !note.balanceStart || note.balanceStart.currency !== d.currency) return;
+  var used = note.balanceStart.amount - d.amount;
+  if (used < 0) return; // topped up in between: the difference means nothing
+  note.spent = { amount: used, currency: d.currency };
+  persistNotes();
+  if (currentNote && currentNote.id === id) renderNoteCost();
+}
+
+function onPrices(d) {
+  var line = $('#price-status');
+  var got = [];
+  if (d.in != null && d.out != null) {
+    $('#priceIn').value = Math.round(d.in * 10000) / 10000;
+    $('#priceOut').value = Math.round(d.out * 10000) / 10000;
+    got.push('price for ' + d.model);
+  }
+  if (d.inr) { $('#usdInr').value = Math.round(d.inr * 100) / 100; got.push('exchange rate'); }
+  if (d.cny) $('#usdCny').value = Math.round(d.cny * 1000) / 1000;
+  if (!got.length) {
+    line.className = 'test-result bad';
+    line.textContent = '✗ Could not fetch. Check the internet connection.';
+    return;
+  }
+  line.className = 'test-result ok';
+  line.textContent = '✓ Filled in: ' + got.join(' and ') + '.' +
+    (d.in == null ? ' No listed price for ' + d.model + ', so that stays as it was.' : '') + ' Tap Save to keep.';
+}
+
 function onTopicsDone(d) {
   var id = Number(d.id);
   delete topicsBusy[id];
@@ -456,6 +513,7 @@ function onTopicsDone(d) {
   if (!d.ok) {
     toast(d.error || 'Could not write the memory stories.');
     renderTopicsBar();
+    askEndBalance(note);
     return;
   }
   note.pages.forEach(function (p) { delete p.topicTitle; delete p.topicStory; });
@@ -474,6 +532,7 @@ function onTopicsDone(d) {
   addUsage(note.usage, extra);
   note.rupees = (note.rupees || 0) + rupeesFor(extra);
   persistNotes();
+  askEndBalance(note);
   if (currentNote && currentNote.id === id && currentView === 'note') {
     var y = window.pageYOffset;
     openNote(id);
@@ -499,7 +558,8 @@ function renderNoteCost() {
   var u = n && n.usage;
   if (!n || !n.rupees || !u) { $('#note-cost').textContent = ''; return; }
   $('#note-cost').textContent = 'API cost for this document: about ' + money(n.rupees) +
-    ' (' + money(n.rupees / n.pages.length) + ' per page) · ' + tokens(u.in) + ' tokens in, ' + tokens(u.out) + ' out';
+    ' (' + money(n.rupees / n.pages.length) + ' per page) · ' + tokens(u.in) + ' tokens in, ' + tokens(u.out) + ' out' +
+    (n.spent ? ' · DeepSeek balance actually went down by ' + spentText(n.spent) : '');
 }
 
 /* ───────── note viewer ───────── */
@@ -585,7 +645,7 @@ function onMarginInput(e) {
 }
 
 /* ───────── settings ───────── */
-var SETTING_IDS = ['geminiKey', 'geminiModel', 'claudeKey', 'claudeModel', 'deepseekKey', 'deepseekModel', 'mnemonicStyle', 'subject', 'priceIn', 'priceOut', 'usdInr'];
+var SETTING_IDS = ['geminiKey', 'geminiModel', 'claudeKey', 'claudeModel', 'deepseekKey', 'deepseekModel', 'mnemonicStyle', 'subject', 'priceIn', 'priceOut', 'usdInr', 'usdCny'];
 
 function readSettings() {
   try { return JSON.parse(Android.getSettings() || '{}') || {}; } catch (e) { return {}; }
@@ -609,6 +669,8 @@ function openSettings() {
   $('#priceIn').value = s.priceIn || '';
   $('#priceOut').value = s.priceOut || '';
   $('#usdInr').value = s.usdInr || '';
+  $('#usdCny').value = s.usdCny || '';
+  $('#price-status').textContent = '';
   showPriceHints();
   $('#test-gemini').textContent = '';
   $('#test-claude').textContent = '';
@@ -668,6 +730,10 @@ window.onNative = function (event, d) {
     if (d.message) toast(d.message);
   } else if (event === 'error') {
     toast(d.message || 'Something went wrong.');
+  } else if (event === 'balance') {
+    onBalance(d);
+  } else if (event === 'prices') {
+    onPrices(d);
   } else if (event === 'topicsDone') {
     onTopicsDone(d);
   } else if (event === 'keyTest') {
@@ -757,13 +823,28 @@ function init() {
   $('#sheets').addEventListener('input', onMarginInput);
 
   $('#btn-update').onclick = function () { Android.installUpdate(); };
+  $('#btn-prices').onclick = function () {
+    var st = formSettings();
+    if (AI_PROVIDERS.indexOf(st.provider) < 0) { toast('Choose Gemini, Claude or DeepSeek first. The no-key mode has no cost.'); return; }
+    var model = st[st.provider + 'Model'];
+    var line = $('#price-status');
+    line.className = 'test-result';
+    line.textContent = 'Fetching…';
+    Android.fetchPrices(st.provider, model);
+  };
   $('#btn-topics').onclick = function () {
     if (!currentNote) return;
     if (!isAi()) { toast('Memory stories per topic need an AI key. Choose an AI in Settings.'); return; }
     startTopics(currentNote);
   };
-  document.querySelectorAll('input[name=provider], #geminiModel, #claudeModel').forEach(function (el) {
-    el.addEventListener('change', showPriceHints);
+  // a different AI or model has a different price: drop the typed prices so the built-in one applies
+  document.querySelectorAll('input[name=provider], #geminiModel, #claudeModel, #deepseekModel').forEach(function (el) {
+    el.addEventListener('change', function () {
+      $('#priceIn').value = '';
+      $('#priceOut').value = '';
+      $('#price-status').textContent = '';
+      showPriceHints();
+    });
   });
   $('#modal-no').onclick = closeModal;
   $('#modal-yes').onclick = function () {

@@ -181,7 +181,13 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         if (settings.optString("provider") == "deepseek") {
             deepseekWorkingModel = null
             deepseek(settings, "Reply with a JSON object.", "Reply with {\"ok\": true}", null)
-            return "DeepSeek key works (model ${deepseekWorkingModel ?: settings.optString("deepseekModel")})."
+            val balance = try {
+                val b = Prices.deepseekBalance(settings.optString("deepseekKey", "").trim())
+                " Balance: ${b.getString("currency")} ${b.getDouble("amount")}."
+            } catch (e: Exception) {
+                ""
+            }
+            return "DeepSeek key works (model ${deepseekWorkingModel ?: settings.optString("deepseekModel")}).$balance"
         }
         val claude = settings.optString("provider") == "claude"
         val who = if (claude) "Claude" else "Gemini"

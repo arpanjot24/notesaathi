@@ -45,6 +45,8 @@
     loadData: function (n) { return localStorage.getItem('mock.' + n) || ''; },
     saveData: function (n, j) { localStorage.setItem('mock.' + n, j); return true; },
     keepAwake: function () {},
+    fetchPrices: function (p, m) { setTimeout(function () { window.onNative('prices', { model: m, in: 0.7499999, out: 3.75, inr: 94.262076, cny: 6.689676 }); }, 300); },
+    deepseekBalance: function (tag) { var a = tag === 'start' ? 5.0 : 4.9871; setTimeout(function () { window.onNative('balance', { tag: tag, ok: true, amount: a, currency: 'USD' }); }, 100); },
     makeTopics: function (id, digestJson) {
       var n = JSON.parse(digestJson).length;
       var half = Math.max(1, Math.ceil(n / 2));

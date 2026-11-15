@@ -194,6 +194,9 @@
       <label class="field">Input price (US$ per 1 million tokens) <input type="number" step="any" min="0" id="priceIn" inputmode="decimal"></label>
       <label class="field">Output price (US$ per 1 million tokens) <input type="number" step="any" min="0" id="priceOut" inputmode="decimal"></label>
       <label class="field">Rupees per US dollar <input type="number" step="any" min="0" id="usdInr" inputmode="decimal"></label>
+      <input type="hidden" id="usdCny">
+      <div class="test-row"><button class="btn btn-small" id="btn-prices">Fetch latest prices</button><span class="test-result" id="price-status"></span></div>
+      <p class="hint small">Fetches today's price for the chosen model from a public price list (LiteLLM) and the exchange rate from open.er-api.com. These are not the AI companies' own pages, so treat them as a good guide.</p>
     </div>
 
     <button class="btn btn-primary btn-block" id="btn-save-settings">Save</button>

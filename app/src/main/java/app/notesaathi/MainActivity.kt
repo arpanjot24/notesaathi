@@ -320,6 +320,34 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        /** Looks up current prices and exchange rates. Answers with a "prices" event. */
+        @JavascriptInterface
+        fun fetchPrices(provider: String, model: String) {
+            io.execute {
+                val out = try {
+                    Prices.fetch(provider, model)
+                } catch (e: Exception) {
+                    JSONObject()
+                }
+                emit("prices", out.put("model", model))
+            }
+        }
+
+        /** Reads the DeepSeek balance. Answers with a "balance" event: {tag, ok, amount, currency}. */
+        @JavascriptInterface
+        fun deepseekBalance(tag: String) {
+            io.execute {
+                val out = JSONObject().put("tag", tag)
+                try {
+                    val b = Prices.deepseekBalance(settings().optString("deepseekKey", "").trim())
+                    out.put("ok", true).put("amount", b.getDouble("amount")).put("currency", b.getString("currency"))
+                } catch (e: Exception) {
+                    out.put("ok", false)
+                }
+                emit("balance", out)
+            }
+        }
+
         /** Checks the key typed in Settings. Answers with a "keyTest" event: {provider, ok, message}. */
         @JavascriptInterface
         fun testKey(json: String) {
