@@ -143,6 +143,8 @@ button { font: inherit; color: inherit; }
 .radio input { width: 22px; height: 22px; margin: 2px 12px 0 0; accent-color: var(--saffron); flex: none; }
 .radio small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
 .field { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-top: 10px; }
+.field select { text-overflow: ellipsis; }
+.model-info { font-size: 13px; font-weight: 600; color: var(--num); margin-top: 6px; }
 .field input, .field select {
   display: block; width: 100%; margin-top: 6px; min-height: 46px; padding: 10px 12px;
   font: inherit; font-size: 16px; font-weight: 400; color: var(--ink);
@@ -153,9 +155,6 @@ button { font: inherit; color: inherit; }
 .key-row input { flex: 1; min-width: 0; }
 .key-row .link-btn { margin: 6px 0 0 8px; flex: none; }
 
-.chips { display: flex; flex-wrap: wrap; margin-top: 4px; }
-.chip { border: 1px solid #d9cdb2; background: #fff; border-radius: 16px; padding: 7px 12px; margin: 6px 6px 0 0; font-size: 13px; }
-.chip:active { background: #fff3df; border-color: var(--saffron); }
 .test-row { display: flex; align-items: center; margin-top: 10px; }
 .test-result { margin-left: 10px; font-size: 13px; line-height: 1.35; color: var(--muted); }
 .test-result.ok { color: var(--num); font-weight: 600; }

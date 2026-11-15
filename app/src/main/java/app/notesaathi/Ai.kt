@@ -15,7 +15,8 @@ object Ai {
     const val DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
     const val DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
     const val DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
-    const val DEFAULT_OPENROUTER_MODEL = "google/gemini-3.1-flash-lite"
+    const val DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash-lite"
+    private const val CHEAP_TEXT_MODEL = "deepseek/deepseek-v4.1-flash"
 
     // Learned while running: which DeepSeek model name answered, and whether it refused pictures.
     @Volatile private var deepseekWorkingModel: String? = null
@@ -155,6 +156,21 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
      * chunks; a topic that crosses a chunk border is split there.
      */
     fun makeTopics(settings: JSONObject, digest: JSONArray): JSONObject {
+        // Writing stories is plain text work, so with OpenRouter it can go to the cheapest model.
+        val cheaper = settings.optString("provider") == "openrouter" &&
+            settings.optString("cheapStories") != "off" &&
+            settings.optString("openrouterModel") != CHEAP_TEXT_MODEL
+        if (cheaper) {
+            try {
+                return topicsWith(JSONObject(settings.toString()).put("openrouterModel", CHEAP_TEXT_MODEL), digest)
+            } catch (e: Exception) {
+                // the cheap model failed: use the model the user chose
+            }
+        }
+        return topicsWith(settings, digest)
+    }
+
+    private fun topicsWith(settings: JSONObject, digest: JSONArray): JSONObject {
         val system = TOPIC_PROMPT.replace("STYLE_LINE", styleLine(settings))
         val all = JSONArray()
         var tokensIn = 0L

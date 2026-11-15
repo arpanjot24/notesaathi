@@ -36,7 +36,7 @@
   };
   window.Android = {
     version: function () { return '1.0.0 (preview)'; },
-    getSettings: function () { return JSON.stringify(Object.assign({ defaultGeminiModel: 'gemini-flash-latest', defaultClaudeModel: 'claude-opus-5-5' }, settings)); },
+    getSettings: function () { return JSON.stringify(Object.assign({ defaultGeminiModel: 'gemini-flash-latest', defaultClaudeModel: 'claude-opus-5-5', defaultDeepseekModel: 'deepseek-flash', defaultOpenrouterModel: 'google/gemini-2.5-flash-lite' }, settings)); },
     saveSettings: function (j) { settings = JSON.parse(j); },
     takePhoto: function () { count++; window.onNative('pages', { count: count }); },
     pickImages: function () { count += 2; window.onNative('pages', { count: count }); },

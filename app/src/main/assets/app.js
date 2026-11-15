@@ -28,9 +28,93 @@ function list(v) {
 
 var AI_PROVIDERS = ['gemini', 'claude', 'deepseek', 'openrouter'];
 
+/* ───────── model catalogue ─────────
+   pin / pout: US$ per million tokens (public price lists, November 2026).
+   read: how well the model is expected to read handwritten notes. A general guide, not measured. */
+var MODELS = {
+  gemini: [
+    { id: 'gemini-flash-lite-latest', name: 'Gemini Flash-Lite', pin: 0.3, pout: 2.5, read: 'good' },
+    { id: 'gemini-flash-latest', name: 'Gemini Flash', pin: 0.75, pout: 3.75, read: 'very good' },
+    { id: 'gemini-pro-latest', name: 'Gemini Pro', pin: 2, pout: 12, read: 'excellent' }
+  ],
+  claude: [
+    { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', pin: 0.1, pout: 0.5, read: 'good' },
+    { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', pin: 2, pout: 10, read: 'excellent' },
+    { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', pin: 4, pout: 20, read: 'excellent' }
+  ],
+  deepseek: [
+    { id: 'deepseek-chat', name: 'DeepSeek Chat', pin: 0.28, pout: 0.42, read: 'printed text only' },
+    { id: 'deepseek-flash', name: 'DeepSeek Flash', pin: 0.3, pout: 1.2, read: 'basic' }
+  ],
+  openrouter: [
+    { id: 'google/gemma-4-31b-it:free', name: 'Gemma 4 (free)', pin: 0, pout: 0, read: 'basic' },
+    { id: 'deepseek/deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash', pin: 0.0507, pout: 0.2028, read: 'basic' },
+    { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', pin: 0.1, pout: 0.4, read: 'good' },
+    { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5', pin: 0.1, pout: 0.5, read: 'good' },
+    { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite', pin: 0.25, pout: 1.5, read: 'good' },
+    { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash', pin: 0.825, pout: 4.125, read: 'very good' },
+    { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', pin: 2, pout: 10, read: 'excellent' }
+  ]
+};
+var TYPICAL_IN = 1800, TYPICAL_OUT = 1500; // tokens for an ordinary page of notes
+
+function findModel(provider, id) {
+  return (MODELS[provider] || []).filter(function (m) { return m.id === id; })[0] || null;
+}
+
+function perPage(m, rate) {
+  return (TYPICAL_IN * m.pin + TYPICAL_OUT * m.pout) / 1e6 * rate;
+}
+
+/* Fills the four model dropdowns and selects the saved model in each. */
+function fillModelPicks(st) {
+  var rate = Number(st.usdInr) > 0 ? Number(st.usdInr) : DEFAULT_USD_INR;
+  Object.keys(MODELS).forEach(function (provider) {
+    var pick = $('#' + provider + 'ModelPick');
+    var input = $('#' + provider + 'Model');
+    var list = MODELS[provider].slice().sort(function (x, y) { return perPage(x, rate) - perPage(y, rate); });
+    pick.innerHTML = list.map(function (m) {
+      var cost = perPage(m, rate);
+      return '<option value="' + esc(m.id) + '">' + esc(m.name) + ' · ' +
+        (cost > 0 ? 'about ' + money(cost) + ' a page' : 'free') + ' · handwriting: ' + esc(m.read) + '</option>';
+    }).join('') + '<option value="">Other (type the model name)</option>';
+    var known = !!findModel(provider, input.value);
+    pick.value = known ? input.value : '';
+    $('#' + provider + 'ModelCustom').classList.toggle('hidden', known);
+    showModelInfo(provider);
+  });
+}
+
+/* The closed dropdown cuts long text short, so the chosen model's price and rating go underneath. */
+function showModelInfo(provider) {
+  var pick = $('#' + provider + 'ModelPick');
+  var info = $('#' + provider + 'ModelInfo');
+  if (!info) {
+    info = document.createElement('div');
+    info.id = provider + 'ModelInfo';
+    info.className = 'model-info';
+    pick.parentNode.appendChild(info);
+  }
+  var opt = pick.options[pick.selectedIndex];
+  info.textContent = pick.value && opt ? opt.textContent.split(' · ').slice(1).join(' · ') : '';
+}
+
+function onModelPick(pick) {
+  var provider = pick.getAttribute('data-pick');
+  var input = $('#' + provider + 'Model');
+  var custom = pick.value === '';
+  $('#' + provider + 'ModelCustom').classList.toggle('hidden', !custom);
+  if (custom) { input.value = ''; input.focus(); }
+  else input.value = pick.value;
+  showModelInfo(provider);
+  input.dispatchEvent(new Event('change'));
+}
+
 /* ───────── cost ───────── */
 /* Built-in prices in US$ per million tokens [input, output]; editable in Settings. */
 function defaultPrices(st) {
+  var listed = findModel(st.provider, st[st.provider + 'Model'] || st['default' + st.provider.charAt(0).toUpperCase() + st.provider.slice(1) + 'Model']);
+  if (listed) return [listed.pin, listed.pout];
   if (st.provider === 'openrouter') return [0.25, 1.5];
   if (st.provider === 'deepseek') return (st.deepseekModel || '').indexOf('chat') >= 0 ? [0.28, 0.42] : [0.3, 1.2];
   if (st.provider === 'claude') {
@@ -679,6 +763,7 @@ function openSettings() {
   $('#usdInr').value = s.usdInr || '';
   $('#usdCny').value = s.usdCny || '';
   $('#price-status').textContent = '';
+  fillModelPicks(s);
   showPriceHints();
   $('#test-gemini').textContent = '';
   $('#test-claude').textContent = '';
@@ -699,7 +784,7 @@ function showPriceHints() {
 }
 
 /* switches: [id, on by default] */
-var SWITCHES = [['stories', true], ['summaries', true], ['lowThinking', false], ['smallPictures', false]];
+var SWITCHES = [['stories', true], ['summaries', true], ['lowThinking', false], ['smallPictures', false], ['cheapStories', true]];
 
 function formSettings() {
   var s = {};
@@ -832,12 +917,9 @@ function init() {
   $('#sheets').addEventListener('input', onMarginInput);
 
   $('#btn-update').onclick = function () { Android.installUpdate(); };
-  $('#or-chips').onclick = function (e) {
-    var chip = e.target.closest ? e.target.closest('.chip') : null;
-    if (!chip) return;
-    $('#openrouterModel').value = chip.getAttribute('data-model');
-    $('#openrouterModel').dispatchEvent(new Event('change'));
-  };
+  document.querySelectorAll('[data-pick]').forEach(function (pick) {
+    pick.addEventListener('change', function () { onModelPick(pick); });
+  });
   $('#btn-prices').onclick = function () {
     var st = formSettings();
     if (AI_PROVIDERS.indexOf(st.provider) < 0) { toast('Choose Gemini, Claude or DeepSeek first. The no-key mode has no cost.'); return; }

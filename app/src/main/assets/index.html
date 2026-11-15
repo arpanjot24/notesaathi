@@ -141,8 +141,11 @@
         <div class="key-row"><input type="password" id="geminiKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your Gemini key"><button class="link-btn" data-show="geminiKey">Show</button></div>
       </label>
       <div class="test-row"><button class="btn btn-small" data-test="gemini">Test key</button><span class="test-result" id="test-gemini"></span></div>
-      <p class="hint small">Get a key at <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a></p>
-      <label class="field">Model <input type="text" id="geminiModel" autocapitalize="off" spellcheck="false"></label>
+      <p class="hint small">Get a key at <a href="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a>. On a free-tier key these cost ₹0 within the daily limit.</p>
+      <label class="field">Model (cheapest first)
+        <select id="geminiModelPick" data-pick="gemini"></select>
+      </label>
+      <label class="field hidden" id="geminiModelCustom">Model name <input type="text" id="geminiModel" autocapitalize="off" spellcheck="false"></label>
     </div>
 
     <div class="card">
@@ -152,7 +155,10 @@
       </label>
       <div class="test-row"><button class="btn btn-small" data-test="claude">Test key</button><span class="test-result" id="test-claude"></span></div>
       <p class="hint small">Get a key at <a href="https://console.anthropic.com/settings/keys">console.anthropic.com</a></p>
-      <label class="field">Model <input type="text" id="claudeModel" autocapitalize="off" spellcheck="false"></label>
+      <label class="field">Model (cheapest first)
+        <select id="claudeModelPick" data-pick="claude"></select>
+      </label>
+      <label class="field hidden" id="claudeModelCustom">Model name <input type="text" id="claudeModel" autocapitalize="off" spellcheck="false"></label>
     </div>
 
     <div class="card">
@@ -162,7 +168,10 @@
       </label>
       <div class="test-row"><button class="btn btn-small" data-test="deepseek">Test key</button><span class="test-result" id="test-deepseek"></span></div>
       <p class="hint small">Get a key at <a href="https://platform.deepseek.com/api_keys">platform.deepseek.com</a></p>
-      <label class="field">Model <input type="text" id="deepseekModel" autocapitalize="off" spellcheck="false"></label>
+      <label class="field">Model (cheapest first)
+        <select id="deepseekModelPick" data-pick="deepseek"></select>
+      </label>
+      <label class="field hidden" id="deepseekModelCustom">Model name <input type="text" id="deepseekModel" autocapitalize="off" spellcheck="false"></label>
     </div>
 
     <div class="card">
@@ -171,14 +180,11 @@
         <div class="key-row"><input type="password" id="openrouterKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your OpenRouter key"><button class="link-btn" data-show="openrouterKey">Show</button></div>
       </label>
       <div class="test-row"><button class="btn btn-small" data-test="openrouter">Test key</button><span class="test-result" id="test-openrouter"></span></div>
-      <label class="field">Model <input type="text" id="openrouterModel" autocapitalize="off" spellcheck="false"></label>
-      <p class="hint small">Use any model from <a href="https://openrouter.ai/models?input_modalities=image">openrouter.ai/models</a> that accepts pictures. Tap a suggestion to use it:</p>
-      <div class="chips" id="or-chips">
-        <button class="chip" data-model="google/gemini-3.1-flash-lite">Low cost · gemini-3.1-flash-lite</button>
-        <button class="chip" data-model="google/gemini-3.8-flash">Best reading · gemini-3.8-flash</button>
-        <button class="chip" data-model="deepseek/deepseek-v4.1-flash">Cheapest · deepseek-v4.1-flash</button>
-        <button class="chip" data-model="google/gemma-4-31b-it:free">Free · gemma-4-31b-it</button>
-      </div>
+      <label class="field">Model (cheapest first)
+        <select id="openrouterModelPick" data-pick="openrouter"></select>
+      </label>
+      <label class="field hidden" id="openrouterModelCustom">Model name <input type="text" id="openrouterModel" autocapitalize="off" spellcheck="false"></label>
+      <p class="hint small">"Other" lets you type any model from <a href="https://openrouter.ai/models?input_modalities=image">openrouter.ai/models</a> that accepts pictures.</p>
     </div>
 
     <div class="card">
@@ -202,7 +208,8 @@
       <label class="radio"><input type="checkbox" id="summaries"> <span><b>"In short" summary on each page</b><small>Turn off for shorter, cheaper pages.</small></span></label>
       <label class="radio"><input type="checkbox" id="lowThinking"> <span><b>Quick mode</b><small>The AI spends less effort per page. Usually the biggest saving; may misread very messy handwriting.</small></span></label>
       <label class="radio"><input type="checkbox" id="smallPictures"> <span><b>Smaller pictures</b><small>Sends a lighter copy of each page. Small saving; avoid for tiny or faint writing.</small></span></label>
-      <p class="hint small">Cheaper model: in the Gemini box above, set Model to <b>gemini-flash-lite-latest</b>. For Claude, <b>claude-haiku-5-5</b> is the cheapest and <b>claude-sonnet-5-5</b> is in between.</p>
+      <label class="radio"><input type="checkbox" id="cheapStories"> <span><b>Cheapest model for the stories (OpenRouter)</b><small>Reading a page needs a good model; writing the stories does not. With OpenRouter, the stories are written by its cheapest text model.</small></span></label>
+      <p class="hint small">The model list for each AI shows the price per page, cheapest first. Prices are estimates for a typical page as of November 2026. "Handwriting" is how well that model is expected to read handwritten notes; it is a general guide and was not measured on your notes.</p>
     </div>
 
     <div class="card">
