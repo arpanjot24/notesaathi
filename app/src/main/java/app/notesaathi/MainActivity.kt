@@ -206,6 +206,7 @@ class MainActivity : ComponentActivity() {
         fun getSettings(): String = settings()
             .put("defaultGeminiModel", Ai.DEFAULT_GEMINI_MODEL)
             .put("defaultClaudeModel", Ai.DEFAULT_CLAUDE_MODEL)
+            .put("defaultDeepseekModel", Ai.DEFAULT_DEEPSEEK_MODEL)
             .toString()
 
         @JavascriptInterface
@@ -214,6 +215,7 @@ class MainActivity : ComponentActivity() {
                 val clean = JSONObject(json)
                 clean.remove("defaultGeminiModel")
                 clean.remove("defaultClaudeModel")
+                clean.remove("defaultDeepseekModel")
                 prefs.edit().putString(KEY_SETTINGS, clean.toString()).apply()
             } catch (e: Exception) {
                 emitError("Could not save settings.")

@@ -26,9 +26,12 @@ function list(v) {
   return [v];
 }
 
+var AI_PROVIDERS = ['gemini', 'claude', 'deepseek'];
+
 /* ───────── cost ───────── */
 /* Built-in prices in US$ per million tokens [input, output]; editable in Settings. */
 function defaultPrices(st) {
+  if (st.provider === 'deepseek') return [0.28, 0.42];
   if (st.provider === 'claude') {
     var m = st.claudeModel || st.defaultClaudeModel || '';
     if (m.indexOf('haiku') >= 0) return [0.1, 0.5];
@@ -45,7 +48,7 @@ var DEFAULT_USD_INR = 88;
 
 function rupeesFor(usage) {
   var st = readSettings();
-  if (!usage || (st.provider !== 'gemini' && st.provider !== 'claude')) return 0;
+  if (!usage || AI_PROVIDERS.indexOf(st.provider) < 0) return 0;
   var d = defaultPrices(st);
   var pin = Number(st.priceIn) > 0 ? Number(st.priceIn) : d[0];
   var pout = Number(st.priceOut) > 0 ? Number(st.priceOut) : d[1];
@@ -60,8 +63,7 @@ function addUsage(total, u) {
   total.out = (total.out || 0) + (u.out || 0);
 }
 function isAi() {
-  var p = readSettings().provider;
-  return p === 'gemini' || p === 'claude';
+  return AI_PROVIDERS.indexOf(readSettings().provider) >= 0;
 }
 
 /* ───────── saved notes ───────── */
@@ -183,6 +185,7 @@ function hasKey() {
   var s = readSettings();
   if (s.provider === 'claude') return !!s.claudeKey;
   if (s.provider === 'gemini') return !!s.geminiKey;
+  if (s.provider === 'deepseek') return !!s.deepseekKey;
   return true; // on-device mode needs no key
 }
 
@@ -485,6 +488,9 @@ function sheetHtml(page, index, total) {
       '</div>';
   }
 
+  if (d.ocr) {
+    main += '<div class="basic-note no-print">The phone read the text of this page and the AI wrote it up from that, so handwriting may be misread.</div>';
+  }
   if (d.basic) {
     main += '<div class="basic-note no-print">Made on this phone without AI. For handwriting, smoother English and story mnemonics, add an AI key in Settings.</div>';
   }
@@ -516,7 +522,7 @@ function onMarginInput(e) {
 }
 
 /* ───────── settings ───────── */
-var SETTING_IDS = ['geminiKey', 'geminiModel', 'claudeKey', 'claudeModel', 'mnemonicStyle', 'subject', 'priceIn', 'priceOut', 'usdInr'];
+var SETTING_IDS = ['geminiKey', 'geminiModel', 'claudeKey', 'claudeModel', 'deepseekKey', 'deepseekModel', 'mnemonicStyle', 'subject', 'priceIn', 'priceOut', 'usdInr'];
 
 function readSettings() {
   try { return JSON.parse(Android.getSettings() || '{}') || {}; } catch (e) { return {}; }
@@ -530,6 +536,8 @@ function openSettings() {
   $('#claudeKey').value = s.claudeKey || '';
   $('#geminiModel').value = s.geminiModel || s.defaultGeminiModel || '';
   $('#claudeModel').value = s.claudeModel || s.defaultClaudeModel || '';
+  $('#deepseekKey').value = s.deepseekKey || '';
+  $('#deepseekModel').value = s.deepseekModel || s.defaultDeepseekModel || '';
   $('#mnemonicStyle').value = s.mnemonicStyle || 'mix';
   $('#subject').value = s.subject || '';
   SWITCHES.forEach(function (sw) {
@@ -541,6 +549,7 @@ function openSettings() {
   showPriceHints();
   $('#test-gemini').textContent = '';
   $('#test-claude').textContent = '';
+  $('#test-deepseek').textContent = '';
   show('settings');
 }
 
@@ -549,7 +558,7 @@ function showPriceHints() {
   st.defaultGeminiModel = st.geminiModel;
   st.defaultClaudeModel = st.claudeModel;
   var d = defaultPrices(st);
-  var ai = st.provider === 'gemini' || st.provider === 'claude';
+  var ai = AI_PROVIDERS.indexOf(st.provider) >= 0;
   $('#priceIn').placeholder = ai ? 'built-in: ' + d[0] : 'no cost in no-key mode';
   $('#priceOut').placeholder = ai ? 'built-in: ' + d[1] : 'no cost in no-key mode';
   $('#usdInr').placeholder = 'built-in: ' + DEFAULT_USD_INR;
@@ -684,7 +693,7 @@ function init() {
   $('#btn-update').onclick = function () { Android.installUpdate(); };
   $('#btn-topics').onclick = function () {
     if (!currentNote) return;
-    if (!isAi()) { toast('Memory stories per topic need an AI key. Choose Gemini or Claude in Settings.'); return; }
+    if (!isAi()) { toast('Memory stories per topic need an AI key. Choose an AI in Settings.'); return; }
     startTopics(currentNote);
   };
   document.querySelectorAll('input[name=provider], #geminiModel, #claudeModel').forEach(function (el) {

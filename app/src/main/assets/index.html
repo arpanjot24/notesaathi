@@ -122,6 +122,7 @@
       <label class="radio"><input type="radio" name="provider" value="offline"> <span><b>On this phone, no key</b><small>Free and private. Reads printed or very neat English and Hindi, makes pointers, a summary and a simple memory trick. Not good with messy handwriting; no story mnemonics.</small></span></label>
       <label class="radio"><input type="radio" name="provider" value="gemini"> <span><b>Google Gemini</b><small>Needs a key (free tier available). Reads handwriting in any language, writes story mnemonics.</small></span></label>
       <label class="radio"><input type="radio" name="provider" value="claude"> <span><b>Anthropic Claude</b><small>Needs a paid key. Same features; often better with messy handwriting.</small></span></label>
+      <label class="radio"><input type="radio" name="provider" value="deepseek"> <span><b>DeepSeek</b><small>Needs a paid key; usually the cheapest. If DeepSeek will not take the picture, the phone reads the text first, which only suits printed or very neat writing.</small></span></label>
     </div>
 
     <div class="card">
@@ -145,6 +146,16 @@
     </div>
 
     <div class="card">
+      <h2 class="card-title">DeepSeek</h2>
+      <label class="field">API key
+        <div class="key-row"><input type="password" id="deepseekKey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your DeepSeek key"><button class="link-btn" data-show="deepseekKey">Show</button></div>
+      </label>
+      <div class="test-row"><button class="btn btn-small" data-test="deepseek">Test key</button><span class="test-result" id="test-deepseek"></span></div>
+      <p class="hint small">Get a key at <a href="https://platform.deepseek.com/api_keys">platform.deepseek.com</a></p>
+      <label class="field">Model <input type="text" id="deepseekModel" autocapitalize="off" spellcheck="false"></label>
+    </div>
+
+    <div class="card">
       <h2 class="card-title">Your notes</h2>
       <label class="field">Memory stories
         <select id="mnemonicStyle">
@@ -160,7 +171,7 @@
 
     <div class="card">
       <h2 class="card-title">Save on cost</h2>
-      <p class="hint small" style="margin-top:0">These only matter with a Gemini or Claude key. The no-key mode is always free.</p>
+      <p class="hint small" style="margin-top:0">These only matter with an AI key. The no-key mode is always free.</p>
       <label class="radio"><input type="checkbox" id="stories"> <span><b>Memory stories for each topic</b><small>Turn off to skip the extra request that writes them.</small></span></label>
       <label class="radio"><input type="checkbox" id="summaries"> <span><b>"In short" summary on each page</b><small>Turn off for shorter, cheaper pages.</small></span></label>
       <label class="radio"><input type="checkbox" id="lowThinking"> <span><b>Quick mode</b><small>The AI spends less effort per page. Usually the biggest saving; may misread very messy handwriting.</small></span></label>

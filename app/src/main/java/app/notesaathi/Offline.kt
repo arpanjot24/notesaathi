@@ -37,6 +37,22 @@ object Offline {
         "then", "some", "other", "about", "called", "known", "used", "each", "more", "most", "many"
     )
 
+    /** Just the text the on-device reader sees, paragraph by paragraph. */
+    fun readText(image: File): String {
+        val bmp = BitmapFactory.decodeFile(image.absolutePath)
+            ?: throw Ai.AiException("Could not open this page.")
+        val recognizer = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+        val text = try {
+            Tasks.await(recognizer.process(InputImage.fromBitmap(bmp, 0)), 90, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            throw Ai.AiException("On-device reading failed for this page. Try again.")
+        } finally {
+            recognizer.close()
+        }
+        bmp.recycle()
+        return text.textBlocks.joinToString("\n\n") { b -> b.lines.joinToString("\n") { it.text.trim() } }
+    }
+
     fun makeNotes(image: File): JSONObject {
         val bmp = BitmapFactory.decodeFile(image.absolutePath)
             ?: throw Ai.AiException("Could not open this page.")

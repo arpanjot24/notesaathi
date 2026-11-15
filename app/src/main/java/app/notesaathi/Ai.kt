@@ -14,6 +14,11 @@ object Ai {
 
     const val DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
     const val DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
+    const val DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
+
+    // Learned while running: which DeepSeek model name answered, and whether it refused pictures.
+    @Volatile private var deepseekWorkingModel: String? = null
+    @Volatile private var deepseekNoPictures = false
     private const val TOPIC_CHUNK = 30
 
     /** The model's text plus the tokens the service says it billed for it. */
@@ -112,8 +117,31 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
             .replace("SUMMARY_STEP", if (summaries) "5. Write a summary of 2 to 3 short lines covering the whole page." else "")
             .replace("SUMMARY_FIELD", if (summaries) ",\n  \"summary\": [\"...\", \"...\"]" else "")
         val user = "Here is the page.${subjectNote(settings)} Make the notes."
-        val reply = ask(settings, system, user, b64)
+        val deepseek = settings.optString("provider") == "deepseek"
+        if (deepseek && deepseekNoPictures) return notesFromPhoneReading(settings, system, image)
+        val reply = try {
+            ask(settings, system, user, b64)
+        } catch (e: AiException) {
+            // DeepSeek may not take pictures: read the text on the phone and send only the text
+            if (!deepseek || (e.code != 400 && e.code != 404 && e.code != 422)) throw e
+            deepseekNoPictures = true
+            return notesFromPhoneReading(settings, system, image)
+        }
         return parseJson(reply.text).put("_usage", usage(reply.tokensIn, reply.tokensOut))
+    }
+
+    private fun notesFromPhoneReading(settings: JSONObject, system: String, image: File): JSONObject {
+        val text = Offline.readText(image)
+        if (text.count { it.isLetterOrDigit() } < 15) {
+            return JSONObject().put("unreadable", true).put(
+                "reason",
+                "DeepSeek did not accept the picture, and the phone's own reader found almost no text. That reader only manages printed or very neat English and Hindi."
+            )
+        }
+        val user = "The page was read by OCR on a phone, so the text may contain mistakes; fix obvious OCR errors from context." +
+            "${subjectNote(settings)} Make the notes from this text:\n\n$text"
+        val reply = ask(settings, system, user, null)
+        return parseJson(reply.text).put("_usage", usage(reply.tokensIn, reply.tokensOut)).put("ocr", true)
     }
 
     /**
@@ -142,11 +170,19 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
     }
 
     private fun ask(settings: JSONObject, system: String, user: String, imageB64: String?): Reply =
-        if (settings.optString("provider", "gemini") == "claude") claude(settings, system, user, imageB64)
-        else gemini(settings, system, user, imageB64)
+        when (settings.optString("provider", "gemini")) {
+            "claude" -> claude(settings, system, user, imageB64)
+            "deepseek" -> deepseek(settings, system, user, imageB64)
+            else -> gemini(settings, system, user, imageB64)
+        }
 
     /** One tiny request to check a key and model name. Returns a success line or throws. */
     fun testKey(settings: JSONObject): String {
+        if (settings.optString("provider") == "deepseek") {
+            deepseekWorkingModel = null
+            deepseek(settings, "Reply with a JSON object.", "Reply with {\"ok\": true}", null)
+            return "DeepSeek key works (model ${deepseekWorkingModel ?: settings.optString("deepseekModel")})."
+        }
         val claude = settings.optString("provider") == "claude"
         val who = if (claude) "Claude" else "Gemini"
         val key = settings.optString(if (claude) "claudeKey" else "geminiKey", "").trim()
@@ -286,6 +322,67 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         return Reply(sb.toString(), u?.optLong("input_tokens", 0) ?: 0, u?.optLong("output_tokens", 0) ?: 0)
     }
 
+    // ---------------------------------------------------------------- DeepSeek
+
+    private fun deepseek(settings: JSONObject, system: String, user: String, imageB64: String?): Reply {
+        val key = settings.optString("deepseekKey", "").trim()
+        if (key.isEmpty()) throw AiException("Add your DeepSeek API key in Settings first.")
+        val chosen = settings.optString("deepseekModel", "").trim()
+        val remembered = deepseekWorkingModel
+        val models = when {
+            chosen.isNotEmpty() && chosen != DEFAULT_DEEPSEEK_MODEL -> listOf(chosen)
+            remembered != null -> listOf(remembered)
+            else -> listOf(DEFAULT_DEEPSEEK_MODEL, "deepseek-chat")
+        }
+        var last: AiException? = null
+        for (model in models) {
+            try {
+                val reply = deepseekCall(key, model, system, user, imageB64)
+                deepseekWorkingModel = model
+                return reply
+            } catch (e: AiException) {
+                // a wrong model name or an unsupported picture: try the next name
+                if (e.code != 400 && e.code != 404 && e.code != 422) throw e
+                last = e
+            }
+        }
+        throw last ?: AiException("DeepSeek did not answer.")
+    }
+
+    /** DeepSeek speaks the OpenAI-style chat format. */
+    private fun deepseekCall(key: String, model: String, system: String, user: String, imageB64: String?): Reply {
+        val userContent: Any = if (imageB64 != null) {
+            JSONArray()
+                .put(JSONObject().put("type", "image_url")
+                    .put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$imageB64")))
+                .put(JSONObject().put("type", "text").put("text", user))
+        } else user
+        val body = JSONObject()
+            .put("model", model)
+            .put("stream", false)
+            .put("response_format", JSONObject().put("type", "json_object"))
+            .put("messages", JSONArray()
+                .put(JSONObject().put("role", "system").put("content", system))
+                .put(JSONObject().put("role", "user").put("content", userContent)))
+
+        val res = postWithRetry(
+            "https://api.deepseek.com/chat/completions",
+            mapOf("Authorization" to "Bearer $key"),
+            body.toString(),
+            "DeepSeek"
+        )
+        val json = JSONObject(res)
+        val choice = json.optJSONArray("choices")?.optJSONObject(0)
+            ?: throw AiException("DeepSeek did not answer.")
+        if (choice.optString("finish_reason") == "length") {
+            throw AiException("There is too much here for one go. Photograph the page in two halves.")
+        }
+        val text = choice.optJSONObject("message")?.optString("content", "") ?: ""
+        if (text.isBlank()) throw AiException("DeepSeek returned nothing.")
+        val u = json.optJSONObject("usage")
+        return Reply(text, u?.optLong("prompt_tokens", 0) ?: 0, u?.optLong("completion_tokens", 0) ?: 0)
+    }
+
     // ---------------------------------------------------------------- shared
 
     private fun parseJson(text: String): JSONObject {
@@ -337,6 +434,7 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         val lead = when (code) {
             400 -> if (detail.contains("API key", true)) "$who did not accept the API key. Check it in Settings." else "$who rejected the request."
             401, 403 -> "$who did not accept the API key. Check it in Settings."
+            402 -> "$who says the account has no balance left. Add credit on its website."
             404 -> "$who does not know that model name. Check the model in Settings."
             413 -> "The picture is too large for $who."
             429 -> "$who says the usage limit is reached. Wait a minute and try again."
