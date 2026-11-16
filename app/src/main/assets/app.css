@@ -243,7 +243,7 @@ button { font: inherit; color: inherit; }
 .box-story .links li::before { content: "→"; left: 0; color: #1b6b33; }
 .story-links-title { font-size: 14px; color: #1b6b33; font-weight: 700; margin-top: 6px; }
 .basic-note { font-family: -apple-system, "Roboto", sans-serif; font-size: 12px; line-height: 1.4; color: var(--muted); margin-top: 14px; }
-.exact-line { margin: 3px 0; min-height: 0.6em; white-space: pre-wrap; }
+.exact-line { margin: 5px 0; }
 .exact-line b { color: var(--key); }
 .exact-line s { color: var(--muted); }
 .box-doubt { background: #fdeceb; border: 1.5px dashed #d98a86; }
@@ -288,7 +288,8 @@ button { font: inherit; color: inherit; }
   .sheet h3 { color: #000; }
   .box-summary, .box-story, .box-doubt { background: none; border: 0.25mm solid #999; }
   .box-doubt h4 { color: #000; }
-  .exact-line { margin: 1pt 0; }
+  /* word-for-word pages: readable 12 pt, paragraphs run edge to edge of the text column */
+  .exact-line { margin: 2.5pt 0; font-size: 12pt; line-height: 1.32; text-align: justify; }
   .box-summary h4, .box-story h4, .story-links-title { color: #000; }
   .hl-d { background: none; }
   .topic-tag { background: none; color: #000; border: 0.25mm solid #666; }

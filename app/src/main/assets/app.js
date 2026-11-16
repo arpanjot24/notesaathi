@@ -27,12 +27,47 @@ function exactLine(line) {
   return '<div class="exact-line">' + h + '</div>';
 }
 
+/*
+ * The transcription comes back with one line per handwritten line. Handwritten lines are short,
+ * so printing them one per row leaves most of the page width empty. This joins the lines of a
+ * paragraph back into running text, without changing a word.
+ *
+ * A line is joined to the one before it only when that earlier line ran to the edge of the
+ * writer's page (it is about as long as the page's longest lines), which is the sign that the
+ * writer wrapped mid-sentence. Short lines, numbered points, bullets, arrows, headings and blank
+ * lines always start a new row, so lists and structure stay as written.
+ */
+function exactBlocks(body) {
+  var lines = String(body || '').replace(/\s+$/, '').split('\n');
+  var lengths = lines.map(function (l) { return l.trim().length; })
+    .filter(function (n) { return n > 0; }).sort(function (x, y) { return x - y; });
+  var longest = lengths.length ? lengths[Math.floor((lengths.length - 1) * 0.9)] : 0;
+  var fullLine = Math.max(24, longest * 0.72);
+  var STARTS_NEW = /^(?:\d{1,3}[.)]\s|\(?[a-zA-Z]\)\s|\(?[ivxIVX]{1,4}\)\s|[-•·→↓⇒➔>✓]|\*\s)/;
+  var blocks = [];
+  var current = -1;
+  var previousWasFull = false;
+  lines.forEach(function (raw) {
+    var t = raw.trim();
+    if (!t) { current = -1; previousWasFull = false; return; }
+    var heading = /^\*\*[^*]+\*\*:?$/.test(t) || (/:$/.test(t) && t.length < 60);
+    if (current >= 0 && previousWasFull && !heading && !STARTS_NEW.test(t)) {
+      blocks[current] += ' ' + t;
+    } else {
+      blocks.push(t);
+      current = blocks.length - 1;
+    }
+    previousWasFull = !heading && t.length >= fullLine;
+  });
+  return blocks;
+}
+
 function exactHtml(text) {
   var all = String(text || '').replace(/\r/g, '');
   var cut = all.search(/^\s*\**\s*DOUBTFUL POINTS\s*:?\s*\**\s*$/mi);
   var body = cut >= 0 ? all.slice(0, cut) : all;
   var doubts = cut >= 0 ? all.slice(cut).split('\n') : [];
-  var html = body.replace(/\s+$/, '').split('\n').map(exactLine).join('');
+  var html = exactBlocks(body).map(exactLine).join('');
   doubts = doubts.map(function (l) { return l.replace(/^\s*[-•*]\s*/, '').trim(); })
     .filter(function (l) { return l && !/^\**\s*DOUBTFUL POINTS\s*:?\s*\**$/i.test(l); });
   if (doubts.length) {
