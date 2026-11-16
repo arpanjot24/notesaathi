@@ -121,21 +121,52 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         return JSONObject().put("exact", true).put("text", text)
     }
 
-    /** Cost saver: a smaller picture means fewer input tokens. */
-    private fun shrink(image: File, maxSide: Int = 1100): ByteArray {
+    /**
+     * Prepares a page picture for upload. Pages are already stored at no more than 1800 px on the
+     * longest edge (see Pages.MAX_SIDE); this can shrink them further and, when gray is set, turn
+     * them into a grayscale picture with the contrast raised. A smaller picture means fewer input
+     * tokens; grayscale does not change the token count but makes the upload lighter and faint
+     * pen or pencil easier to read.
+     */
+    private fun shrink(image: File, maxSide: Int = 1100, gray: Boolean = false): ByteArray {
         val bmp = android.graphics.BitmapFactory.decodeFile(image.absolutePath) ?: return image.readBytes()
         val scale = maxSide.toFloat() / maxOf(bmp.width, bmp.height)
-        if (scale >= 1f) {
+        if (scale >= 1f && !gray) {
             bmp.recycle()
             return image.readBytes()
         }
-        val small = android.graphics.Bitmap.createScaledBitmap(
-            bmp, maxOf(1, (bmp.width * scale).toInt()), maxOf(1, (bmp.height * scale).toInt()), true
-        )
+        var picture = if (scale < 1f) {
+            android.graphics.Bitmap.createScaledBitmap(
+                bmp, maxOf(1, (bmp.width * scale).toInt()), maxOf(1, (bmp.height * scale).toInt()), true
+            )
+        } else bmp
+        if (picture !== bmp) bmp.recycle()
+
+        if (gray) {
+            // grayscale, then stretch contrast around mid-gray (1.0 = unchanged)
+            val contrast = 1.35f
+            val shift = (0.5f - 0.5f * contrast) * 255f
+            val matrix = android.graphics.ColorMatrix()
+            matrix.setSaturation(0f)
+            matrix.postConcat(android.graphics.ColorMatrix(floatArrayOf(
+                contrast, 0f, 0f, 0f, shift,
+                0f, contrast, 0f, 0f, shift,
+                0f, 0f, contrast, 0f, shift,
+                0f, 0f, 0f, 1f, 0f
+            )))
+            val paint = android.graphics.Paint()
+            paint.colorFilter = android.graphics.ColorMatrixColorFilter(matrix)
+            val grayPicture = android.graphics.Bitmap.createBitmap(
+                picture.width, picture.height, android.graphics.Bitmap.Config.ARGB_8888
+            )
+            android.graphics.Canvas(grayPicture).drawBitmap(picture, 0f, 0f, paint)
+            picture.recycle()
+            picture = grayPicture
+        }
+
         val out = java.io.ByteArrayOutputStream()
-        small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
-        if (small !== bmp) bmp.recycle()
-        small.recycle()
+        picture.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+        picture.recycle()
         return out.toByteArray()
     }
 
@@ -144,7 +175,8 @@ Reply with one JSON object only, no markdown fences and no other text, in exactl
         if (settings.optString("provider") == "gemini" && settings.optString("costSaving") == "on") {
             return costSavingPage(settings, image)
         }
-        val bytes = if (settings.optString("smallPictures") == "on") shrink(image) else image.readBytes()
+        val gray = settings.optString("grayPictures") != "off"
+        val bytes = shrink(image, if (settings.optString("smallPictures") == "on") 1100 else Pages.MAX_SIDE, gray)
         val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
         val summaries = settings.optString("summaries") != "off"
         val notesPrompt = PAGE_PROMPT
@@ -330,7 +362,7 @@ DOUBTFUL POINTS
         val key = settings.optString("geminiKey", "").trim()
         if (key.isEmpty()) throw AiException("Add your Gemini API key in Settings first.")
         val model = settings.optString("geminiModel", "").trim().ifEmpty { COST_SAVING_GEMINI_MODEL }
-        val b64 = Base64.encodeToString(shrink(image, COST_SAVING_MAX_SIDE), Base64.NO_WRAP)
+        val b64 = Base64.encodeToString(shrink(image, COST_SAVING_MAX_SIDE, settings.optString("grayPictures") != "off"), Base64.NO_WRAP)
         val system = COST_SAVING_PROMPT + if (settings.optString("doubtful") != "off") COST_SAVING_DOUBTFUL else ""
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 

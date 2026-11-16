@@ -896,7 +896,7 @@ function showPriceHints() {
 }
 
 /* switches: [id, on by default] */
-var SWITCHES = [['stories', true], ['summaries', true], ['lowThinking', false], ['smallPictures', false], ['cheapStories', true], ['costSaving', false], ['doubtful', true]];
+var SWITCHES = [['stories', true], ['summaries', true], ['lowThinking', false], ['smallPictures', false], ['cheapStories', true], ['costSaving', false], ['doubtful', true], ['grayPictures', true]];
 
 function formSettings() {
   var s = {};
