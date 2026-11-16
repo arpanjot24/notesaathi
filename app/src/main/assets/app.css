@@ -246,8 +246,7 @@ button { font: inherit; color: inherit; }
 .exact-line { margin: 5px 0; }
 .exact-line b { color: var(--key); }
 .exact-line s { color: var(--muted); }
-.box-doubt { background: #fdeceb; border: 1.5px dashed #d98a86; }
-.box-doubt h4 { color: #a3261f; }
+.doubt { font-size: 14px; line-height: 1.35; color: #a3261f; border-top: 1px dashed #d98a86; margin-top: 8px; padding-top: 4px; }
 .page-tokens { font-family: -apple-system, "Roboto", sans-serif; font-size: 11px; color: #a39a85; margin-top: 12px; }
 .unreadable { color: var(--muted); padding: 20px 0; }
 
@@ -286,8 +285,8 @@ button { font: inherit; color: inherit; }
   .sheet { background: #fff; color: #000; border-bottom: 0.2mm solid #bbb; }
   .sheet-title { border-bottom: 0.3mm solid #999; }
   .sheet h3 { color: #000; }
-  .box-summary, .box-story, .box-doubt { background: none; border: 0.25mm solid #999; }
-  .box-doubt h4 { color: #000; }
+  .box-summary, .box-story { background: none; border: 0.25mm solid #999; }
+  .doubt { font-size: 9.5pt; line-height: 1.25; color: #000; border-top: 0.2mm solid #999; margin-top: 3pt; padding-top: 2pt; text-align: justify; }
   /* word-for-word pages: readable 12 pt, paragraphs run edge to edge of the text column */
   .exact-line { margin: 2.5pt 0; font-size: 12pt; line-height: 1.32; text-align: justify; }
   .box-summary h4, .box-story h4, .story-links-title { color: #000; }

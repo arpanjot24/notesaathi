@@ -70,9 +70,13 @@ function exactHtml(text) {
   var html = exactBlocks(body).map(exactLine).join('');
   doubts = doubts.map(function (l) { return l.replace(/^\s*[-•*]\s*/, '').trim(); })
     .filter(function (l) { return l && !/^\**\s*DOUBTFUL POINTS\s*:?\s*\**$/i.test(l); });
+  // "None" means nothing to flag, so it takes no space at all
+  doubts = doubts.filter(function (l) { return !/^none\.?$/i.test(l); });
   if (doubts.length) {
-    html += '<div class="box box-doubt"><h4>⚠ Doubtful points</h4><ul>' +
-      doubts.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul></div>';
+    // one small run-on paragraph instead of a boxed list, to save paper
+    html += '<div class="doubt"><b>⚠ Doubtful:</b> ' +
+      doubts.map(function (l, i) { return (doubts.length > 1 ? '(' + (i + 1) + ') ' : '') + esc(l); }).join(' ') +
+      '</div>';
   }
   return html;
 }
